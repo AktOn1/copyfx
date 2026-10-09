@@ -4,6 +4,8 @@
 
 An animation on the text you just copied, for the [Omarchy](https://omarchy.org/) shell. Select some text, press Ctrl+C, and the letters jump, rain, burst into flowers or get eaten by Pac-Man, right where you selected them. About 120 effects, a gallery to try them, and colours that follow your theme.
 
+> **Experimental.** This plugin is new and still being worked on. Expect rough edges, effects that change or get renamed, and settings that move between versions. Bug reports are welcome.
+
 ![Nine of the effects](preview.png)
 
 ## Install
@@ -32,6 +34,14 @@ omarchy pkg add grim python-pillow python-numpy
 3. Select some text anywhere and copy it.
 
 The gallery does not dim the screen and clicks outside it pass through, so you can copy something and watch the effect straight away.
+
+## Bar icon and menu
+
+The plugin also adds a bar icon (a copy symbol with a sparkle). Add "Copy Text Effects" to your bar in the Omarchy shell settings; it is under Appearance. Click it to open the menu: groups on the left (Favorites, All, then tag groups such as Playful, Retro or Nature), effects on the right, and On, Random, Surprise me and Gallery at the top.
+
+Hover or move over an effect to preview it, click or press Enter to keep it. Keys: `hjkl` or arrows move, Enter keeps the effect and closes, Space previews, Tab jumps between groups, `f` toggles a favorite, `r` surprise me, `m` random mode, `e` on/off, `v` gallery, Esc closes. Favorites are saved in the plugin's own data folder. The menu can also be opened from a key: `omarchy-shell io.github.akton1.copy-text-effects.menu toggle`.
+
+The menu code is a small self-contained component (`SectionMenu.qml` and `MenuRow.qml`, copied into the plugin) that other plugins can copy and reuse (MIT licensed).
 
 ## Usage
 
@@ -112,7 +122,7 @@ What the plugin does on your machine, so you can decide whether to run it:
 - **Network.** One call, to Open-Meteo (`api.open-meteo.com`), for the weather effects, with the coordinates from Omarchy's own weather widget settings (`~/.local/state/omarchy/settings/weather.json`). It only happens while a weather effect can play (gallery open, random mode, or a weather effect chosen), at most every 25 minutes, with a 10 second timeout and a 200 kB cap. No key, no account, no telemetry, no other network access.
 - **Files it writes.** In `~/.local/share/omarchy-shell/copyfx/`: `config.json`, `theme-effects.json`, `weather.json` (last forecast), `detect.log` (the last 300 detection results: screen coordinates, colours, timings; not the copied text), and `packs/`. In `$XDG_RUNTIME_DIR`: `copyfx-sprites/`, `copyfx-live/` (the merged effect tree) and, for a moment, `copyfx-yank.txt`.
 - **Theme.** It reads `~/.local/state/omarchy/current/theme/colors.toml` and checks the theme name every 3 seconds.
-- **IPC.** The overlay answers `omarchy-shell shell summon <id> '<json>'` commands: `test`, `notify`, `stop`, `copyKey`, `rightClick`, `yank`, `packs`, `weatherTest` (and `reload` when `devReload` is on). Any local program of yours can send these; they can only play effects, nothing else.
+- **IPC.** The overlay answers `omarchy-shell shell summon <id> '<json>'` commands: `test`, `notify`, `stop`, `copyKey`, `rightClick`, `yank`, `packs`, `weatherTest` (and `reload` when `devReload` is on); the bar menu adds `menuState` and `set` (turn on/off, pick the effect or random mode; unknown effects are ignored). Any local program of yours can send these; they can only play effects, nothing else.
 - **Packs are code.** An effect pack is QML that runs inside the shell. Packs are pinned to one exact commit and linted at install and every time the effect tree is built (only QtQuick imports; no processes, files, network or dynamic code). That is a safety net against mistakes, not a sandbox: only install packs from people you trust.
 - **Text from outside** (the copied text, link addresses) is always drawn as plain text, never as markup.
 

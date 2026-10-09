@@ -169,3 +169,22 @@ assert.strictEqual(ctx.looksLikeLink("two words"), false)
 assert.strictEqual(ctx.looksLikeLink("hello"), false)
 assert.strictEqual(ctx.looksLikeLink(""), false)
 console.log("link ok")
+{
+  const E = (id, size, tags, extra) => Object.assign({ id, name: id.toUpperCase(), description: "d " + id, size, tags, debug: false }, extra || {})
+  const list = [E("b", "IMG", ["playful", "by-image"]), E("a", "M", ["playful"]), E("c", "IMG", ["playful"]), E("d", "S", ["clean"]), E("x", "XL", ["retro"]), E("dbg", "S", ["debug"], { debug: true })]
+  const cats = ctx.menuCategories(list, ["c", "gone", "a"])
+  assert.strictEqual(j(cats.map((c) => c.id)), j(["fav", "all", "tag:playful", "more"]))
+  assert.strictEqual(j(cats[0].items.map((i) => i.id)), j(["c", "a"]))          // favourites keep their order, unknown ids are dropped
+  assert.strictEqual(j(cats[1].items.map((i) => i.id)), j(["a", "b", "c", "d", "x"]))   // sorted by name, debug effects left out
+  assert.strictEqual(j(cats[3].items.map((i) => i.id)), j(["d", "x"]))
+  assert.strictEqual(cats[1].items[1].hint, "on the text"); assert.strictEqual(cats[1].items[4].hint, "big"); assert.strictEqual(cats[1].items[3].hint, "small")
+  assert.strictEqual(ctx.menuCategories([], []).length, 2)
+  assert.strictEqual(j(ctx.toggleFav(["a", "b"], "a")), j(["b"])); assert.strictEqual(j(ctx.toggleFav(["a"], "z")), j(["a", "z"])); assert.strictEqual(j(ctx.toggleFav(null, "z")), j(["z"]))
+  const cfg = ctx.parseConfig("")
+  let r = ctx.applySet(cfg, { effect: "b", mode: "random", enabled: false }, ["a", "b"])
+  assert.strictEqual(r.changed, true); assert.strictEqual(r.config.effect, "b"); assert.strictEqual(r.config.mode, "random"); assert.strictEqual(r.config.enabled, false)
+  r = ctx.applySet(cfg, { effect: "nope", mode: "weird", enabled: "yes", fallback: "panel", devReload: true }, ["a"])
+  assert.strictEqual(r.changed, false); assert.strictEqual(r.config.fallback, "off"); assert.strictEqual(r.config.devReload, false)
+  assert.strictEqual(ctx.applySet(cfg, null, []).changed, false)
+  console.log("menu ok")
+}

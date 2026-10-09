@@ -21,6 +21,9 @@ Item {
   // The shell's toggle() decides open-vs-close from this; without it every second toggle call would
   // be routed to close() and dropped (test/copy-key calls included).
   readonly property bool opened: root.galleryOpen
+  // The bar menu (BarWidget.qml) is open: its previews are tests like the gallery's, not copies (they play without a selection, no screenshot).
+  property bool menuOpen: false
+  readonly property bool testing: root.galleryOpen || root.menuOpen
   property var effects: []
   // Gallery filter: the smallest size present is always on, the others are chips in the header.
   readonly property var presentSizes: { var z = []; root.effects.forEach(function(e) { if (z.indexOf(e.size) < 0) z.push(e.size) }); return z }
@@ -128,6 +131,12 @@ Item {
   function open(payloadJson) {
     var p = {}
     try { p = JSON.parse(payloadJson || "{}") } catch (e) {}
+    if (p.menuState !== undefined) { root.menuOpen = p.menuState === "open"; return }
+    if (p.set) {      // the bar menu's choices: effect, mode, enabled (nothing else)
+      var r = Logic.applySet(root.config, p.set, root.effects.map(function(e) { return e.id }))
+      if (r.changed) { root.config = r.config; root.saveConfig() }
+      return
+    }
     if (p.stop) { root.playing = false; fxLoader.setSource("", {}); return }
     if (p.yank) { root.onYank(p.yank); return }
     if (p.packs) { root.materialise(root.srcDir, false); return }
@@ -173,7 +182,7 @@ Item {
   function toggle(payloadJson) {
     var p = {}
     try { p = JSON.parse(payloadJson || "{}") } catch (e) {}
-    if (p.test || p.copyKey || p.rightClick || p.notify || p.stop || p.reload || p.yank || p.packs || p.weatherTest !== undefined) root.open(payloadJson)
+    if (p.test || p.menuState !== undefined || p.set || p.copyKey || p.rightClick || p.notify || p.stop || p.reload || p.yank || p.packs || p.weatherTest !== undefined) root.open(payloadJson)
     else if (root.galleryOpen) root.close()
     else root.open(payloadJson)
   }
@@ -311,7 +320,7 @@ Item {
   function detectSelection() {
     var p = root.selPos
     if (!p || !root.config.enabled || root.config.anchor !== "selection") return
-    if (root.playing || root.galleryOpen) { selDetectTimer.interval = 300; selDetectTimer.restart(); return }      // the screenshot must not show an effect / the gallery
+    if (root.playing || root.testing) { selDetectTimer.interval = 300; selDetectTimer.restart(); return }      // the screenshot must not show an effect / the gallery
     selDetectTimer.interval = 120
     root.selDetecting = true
     cacheSel.forPos = p
@@ -529,7 +538,7 @@ Item {
     root.fxScreen = scr
     var nt = root.pendingNotify
     root.pendingNotify = null
-    root.infoData = (nt || root.galleryOpen || root.config.info === "off") ? null : Logic.classifyText(root.pendingRaw, root.config.info)
+    root.infoData = (nt || root.testing || root.config.info === "off") ? null : Logic.classifyText(root.pendingRaw, root.config.info)
     root.fxPos = nt ? nt.pos : ""
     root.fxIsNotify = !!nt
     root.fxDurationMs = nt ? nt.dur : 0
@@ -547,7 +556,7 @@ Item {
     root.fxSprite = null
     root.fxSelDebug = ({})
     // Every effect starts where the copied text was (config anchor "selection", the default; "cursor" skips the detection).
-    var wantSel = eff && (eff.selection || (root.config.anchor === "selection" && !nt && !root.galleryOpen))
+    var wantSel = eff && (eff.selection || (root.config.anchor === "selection" && !nt && !root.testing))
     var usePref = wantSel && eff && eff.selection !== false && root.config.anchor === "selection"
     var yk = wantSel && root.yankFresh(root.pendingText) ? root.yank : null
     // The copied text is not the text of the last selection we know (a copy button / menu, OR the selection is still being made with the mouse held
@@ -612,7 +621,7 @@ Item {
         // The selection was made just now and its detection has not finished (or not even started: it is debounced ~120 ms): wait for it instead of
         // detecting a second time from scratch after the copy.
         var pendingSel = (root.selDetecting || selDetectTimer.running) && root.selPos && Logic.sameSelection(root.selPos.text, root.pendingText)
-        if (pendingSel && !root.playing && !root.galleryOpen) {
+        if (pendingSel && !root.playing && !root.testing) {
           root.lap("waiting for the selection detection that is under way")
           root.cacheWaiter = function() {
             cacheWaitTimer.stop()
@@ -723,7 +732,7 @@ Item {
     var fb = Logic.fallbackLook(known, root.background, root.foreground, 24)
     root.fxFbPx = fb.px; root.fxFbBg = fb.bg; root.fxFbFg = fb.fg
     if (!root.fxSelFound) root.lap("no selection found: plain panel " + fb.px + "px, " + (fb.matched ? "looks of the last selection in this app" : "shell colours"))
-    if (Logic.skipPlay(root.config.fallback, root.config.anchor, root.fxSelFound, root.galleryOpen, root.fxIsNotify)) {
+    if (Logic.skipPlay(root.config.fallback, root.config.anchor, root.fxSelFound, root.testing, root.fxIsNotify)) {
       root.lap("no selection found and fallback is off: no effect")
       if (root.infoData) root.showInfo()
       return
@@ -934,7 +943,7 @@ Item {
   onWeatherOverrideChanged: root.refreshWeather()
   // Open-Meteo is only asked (with the coordinates of Omarchy's weather widget) while a weather effect can actually be played:
   // the gallery is open, random mode is on, or a weather effect is the chosen one.
-  readonly property bool weatherWanted: root.galleryOpen || root.config.mode === "random" || Logic.isWeatherEffect(root.config.effect)
+  readonly property bool weatherWanted: root.testing || root.config.mode === "random" || Logic.isWeatherEffect(root.config.effect)
   onWeatherWantedChanged: if (root.weatherWanted) root.fetchWeather()
   function fetchWeather() {
     var l = root.weatherLoc
@@ -1000,8 +1009,18 @@ Item {
     id: scanProc
     command: ["sh", "-c", "cd \"$1/effects\" 2>/dev/null && for f in */effect.json; do [ -f \"$f\" ] && jq -c --arg id \"${f%%/*}\" '. + {id: $id}' \"$f\"; done; true", "sh", root.effectLocal]
     stdout: StdioCollector {
-      onStreamFinished: root.effects = Logic.parseEffects(this.text)
+      onStreamFinished: {
+        root.effects = Logic.parseEffects(this.text)
+        effectIndexFile.setText(JSON.stringify(root.effects))      // the bar menu reads the effect list from here
+      }
     }
+  }
+
+  FileView {
+    id: effectIndexFile
+    path: root.runDir + "/copyfx-effects.json"
+    atomicWrites: true
+    printErrors: false
   }
 
   FileView {

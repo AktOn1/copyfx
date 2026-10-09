@@ -411,3 +411,47 @@ function lookKeys(cls, win) {
   if (win && win.length === 4 && win[2] > 0) keys.push("win:" + win.map(Math.round).join(","))
   return keys
 }
+
+// ---------- bar menu (BarWidget.qml) ----------
+// Tag groups shown as categories, in this order; a tag needs at least 3 effects to get its own row. Effects that are in none of them go to "More".
+var MENU_GROUPS = [["playful", "Playful"], ["clean", "Clean"], ["simple", "Simple"], ["cozy", "Cozy"], ["wholesome", "Wholesome"], ["nature", "Nature"],
+  ["weather", "Weather"], ["party", "Party"], ["retro", "Retro"], ["arcade", "Arcade"], ["neon", "Neon"], ["cyber", "Cyber"], ["hacker", "Hacker"],
+  ["dev", "Dev"], ["nerdy", "Nerdy"], ["physics", "Physics"], ["glitch", "Glitch"]]
+function menuKind(size) {
+  return size === "IMG" ? "on the text" : size === "XL" ? "big" : size === "S" ? "small" : "letters"
+}
+// Menu rows for the effect list: Favorites, All, one row per tag group, More. Debug effects are left out (dev tools).
+function menuCategories(effects, favs) {
+  var list = (effects || []).filter(function(e) { return !e.debug })
+  var item = function(e) { return { id: e.id, label: e.name, hint: menuKind(e.size), desc: e.description } }
+  var byName = function(a, b) { return a.name < b.name ? -1 : a.name > b.name ? 1 : 0 }
+  list = list.slice().sort(byName)
+  var cats = [], used = {}
+  var fav = (favs || []).map(function(id) { return list.filter(function(e) { return e.id === id })[0] }).filter(function(e) { return !!e })
+  cats.push({ id: "fav", label: "★ Favorites", items: fav.map(item), note: "Press f on an effect to add it here." })
+  cats.push({ id: "all", label: "All", items: list.map(item) })
+  MENU_GROUPS.forEach(function(g) {
+    var m = list.filter(function(e) { return e.tags.indexOf(g[0]) >= 0 })
+    if (m.length < 3) return
+    m.forEach(function(e) { used[e.id] = true })
+    cats.push({ id: "tag:" + g[0], label: g[1], items: m.map(item) })
+  })
+  var rest = list.filter(function(e) { return !used[e.id] })
+  if (rest.length) cats.push({ id: "more", label: "More", items: rest.map(item) })
+  return cats
+}
+// Toggle an id in a favourites list (keeps order, no duplicates).
+function toggleFav(favs, id) {
+  var cur = (favs || []).filter(function(f) { return f !== id })
+  if (cur.length === (favs || []).length) cur.push(id)
+  return cur
+}
+// What the bar menu may change in config.json (through {"set": {...}} from BarWidget.qml): only these, only valid values.
+function applySet(config, set, effectIds) {
+  var c = Object.assign({}, config), changed = false
+  if (!set) return { config: c, changed: false }
+  if (typeof set.effect === "string" && (effectIds || []).indexOf(set.effect) >= 0 && c.effect !== set.effect) { c.effect = set.effect; changed = true }
+  if ((set.mode === "random" || set.mode === "selected") && c.mode !== set.mode) { c.mode = set.mode; changed = true }
+  if (typeof set.enabled === "boolean" && c.enabled !== set.enabled) { c.enabled = set.enabled; changed = true }
+  return { config: c, changed: changed }
+}
