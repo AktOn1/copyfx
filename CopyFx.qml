@@ -1039,7 +1039,7 @@ Item {
       onStreamFinished: {
         var m = this.text.split("\n").filter(function(x) { return x !== "" })
         root.missingDeps = m
-        if (m.length) console.log("copyfx: missing " + m.join(", ") + "  (install with: omarchy pkg add " + m.filter(function(x) { return x.indexOf(" ") < 0 }).join(" ") + ")")
+        if (m.length) console.log("copyfx: missing " + m.join(", ") + "  (install these packages)")
       }
     }
   }
@@ -1279,7 +1279,7 @@ Item {
             Item { width: 1; height: 1 }
             Text { textFormat: Text.PlainText;
               anchors.verticalCenter: parent.verticalCenter
-              text: root.missingDeps.length ? "missing: " + root.missingDeps.join(", ") + "  (omarchy pkg add ...)"
+              text: root.missingDeps.length ? "missing: " + root.missingDeps.join(", ") + "  (install these packages)"
                 : (root.config.enabled ? "on" : "OFF") + "  ·  " + (root.config.mode === "random" ? "random effect" : "selected effect") + "  ·  " + root.weatherText + (root.themeText ? "  ·  " + root.themeText : "")
               color: root.missingDeps.length ? "#ff6b6b" : Util.alpha(root.foreground, 0.7)
               font.family: root.fontFamily

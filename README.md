@@ -21,11 +21,7 @@ Then restart the shell once (`omarchy-restart-shell`) so the overlay loads.
 - Omarchy with the shell plugin system and Hyprland.
 - `wl-clipboard` (`wl-paste`), `jq`, `grim`, `curl`, `python`, `python-pillow`, `python-numpy`.
 
-On Omarchy most of these are already there. If something is missing, the plugin writes the install command to the shell log and shows `missing: ...` in red in the gallery header, for example:
-
-```
-omarchy pkg add grim python-pillow python-numpy
-```
+On Omarchy most of these are already there. If something is missing, the plugin lists the missing packages in the shell log and shows `missing: ...` in red in the gallery header. Install the packages it names (for example `grim`, `python-pillow`, `python-numpy`) with Omarchy's package install menu.
 
 ## First run
 
