@@ -10,7 +10,7 @@ import QtQuick
 //   dxFn(u), dyFn(u)   offset in px          rotFn(u) degrees        scaleFn(u)
 //   alphaFn(u)         0..1                  tintFn(u)  atlas row: 0 = real colours, 1..12 rainbow (red, orange, yellow, lime,
 //                                            green, spring, cyan, azure, blue, violet, magenta, rose), 13 accent, 14 white,
-//                                            15 matrix green, 16 amber, 17 C64 blue, 18 terminal green, 19 hologram cyan, 20 neon pink,
+//                                            15 glyph green, 16 amber, 17 Retro Basic blue, 18 terminal green, 19 hologram cyan, 20 neon pink,
 //                                            21 hex blue (big selections only get a few of these rows, see sprite.tints)
 // and read t (ms, 0..total, squeezed into runMs), n, step, lh, tg (bounding box of the text), rects, units.
 EffectBase {

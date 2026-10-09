@@ -2,7 +2,7 @@
 
 <a href='https://ko-fi.com/akton1' target='_blank'><img height='36' style='border:0px;height:36px;' src='https://storage.ko-fi.com/cdn/kofi3.png?v=6' border='0' alt='Buy Me a Coffee at ko-fi.com' /></a>
 
-An animation on the text you just copied, for the [Omarchy](https://omarchy.org/) shell. Select some text, press Ctrl+C, and the letters jump, rain, burst into flowers or get eaten by Pac-Man, right where you selected them. About 120 effects, a gallery to try them, and colours that follow your theme.
+An animation on the text you just copied, for the [Omarchy](https://omarchy.org/) shell. Select some text, press Ctrl+C, and the letters jump, rain, burst into flowers or get eaten by a round chomper, right where you selected them. About 120 effects, a gallery to try them, and colours that follow your theme.
 
 > **Experimental.** This plugin is new and still being worked on. Expect rough edges, effects that change or get renamed, and settings that move between versions. Bug reports are welcome.
 
@@ -87,9 +87,7 @@ hl.bind("mouse:273", hl.dsp.exec_cmd([[omarchy-shell shell summon io.github.akto
 **Command-line tools** (in `bin/`; link them into `~/.local/bin` if you want them on your `PATH`):
 
 - `notifyfx` shows any effect as a notification at a screen position: `notifyfx topright --text "Hello" --duration 2s`, `notifyfx --list-effects`.
-- `copyfx` manages effect packs (see below).
-
-**Effect packs.** Extra effects can be shared as git repos. `copyfx pack add <git-url> --rev <full 40-character commit id>` installs one at exactly that commit, `copyfx pack update NAME --rev <commit>` moves it, `copyfx pack list|remove`. `copyfx pack new my-effects` scaffolds one and `copyfx pack lint DIR` checks it. See "Permissions and behaviour" for what packs can and cannot do.
+- `copyfx` is a small developer helper (used by the dev reload).
 
 **Adding an effect.** Create `effects/<id>/effect.json` and `effects/<id>/Effect.qml` whose root is `EffectBase` (inputs: `text`, `origin`, `fg`, `bg`, `accent`, `fontFamily`, `fontSize`, `compact`). Animate on `Component.onCompleted` and emit `finished()`. `tests/run-effect.sh <id>` runs one effect offscreen and prints its QML warnings.
 
@@ -120,10 +118,9 @@ What the plugin does on your machine, so you can decide whether to run it:
 - **Clipboard and selection.** Two `wl-paste --watch` processes run all the time: one on the clipboard, one on the primary selection (the text you highlight). The text of a copy is handed to Omarchy's own clipboard `capture.sh` (which skips password-manager copies), and the selection watcher also ignores copies flagged as sensitive. The plugin keeps no history and writes copied text nowhere. Copied text is never put on a command line.
 - **Screen capture.** To find where your selection is, the plugin takes a small screenshot around the mouse with `grim` right after you select and again when you copy (a small region, not the whole screen). It never leaves your machine. The images are processed in memory; for the effects that draw the selection as a picture, a PNG of just the selected text is written to `$XDG_RUNTIME_DIR/copyfx-sprites` (a private folder in the runtime dir) and kept for up to 300 seconds: files older than that are deleted the next time a detection runs, and the runtime dir is emptied at logout.
 - **Network.** One call, to Open-Meteo (`api.open-meteo.com`), for the weather effects, with the coordinates from Omarchy's own weather widget settings (`~/.local/state/omarchy/settings/weather.json`). It only happens while a weather effect can play (gallery open, random mode, or a weather effect chosen), at most every 25 minutes, with a 10 second timeout and a 200 kB cap. No key, no account, no telemetry, no other network access.
-- **Files it writes.** In `~/.local/share/omarchy-shell/copyfx/`: `config.json`, `theme-effects.json`, `weather.json` (last forecast), `detect.log` (the last 300 detection results: screen coordinates, colours, timings; not the copied text), and `packs/`. In `$XDG_RUNTIME_DIR`: `copyfx-sprites/`, `copyfx-live/` (the merged effect tree) and, for a moment, `copyfx-yank.txt`.
+- **Files it writes.** In `~/.local/share/omarchy-shell/copyfx/`: `config.json`, `theme-effects.json`, `weather.json` (last forecast) and `detect.log` (the last 300 detection results: screen coordinates, colours, timings; not the copied text). In `$XDG_RUNTIME_DIR`: `copyfx-sprites/` and, for a moment, `copyfx-yank.txt`.
 - **Theme.** It reads `~/.local/state/omarchy/current/theme/colors.toml` and checks the theme name every 3 seconds.
-- **IPC.** The overlay answers `omarchy-shell shell summon <id> '<json>'` commands: `test`, `notify`, `stop`, `copyKey`, `rightClick`, `yank`, `packs`, `weatherTest` (and `reload` when `devReload` is on); the bar menu adds `menuState` and `set` (turn on/off, pick the effect or random mode; unknown effects are ignored). Any local program of yours can send these; they can only play effects, nothing else.
-- **Packs are code.** An effect pack is QML that runs inside the shell. Packs are pinned to one exact commit and linted at install and every time the effect tree is built (only QtQuick imports; no processes, files, network or dynamic code). That is a safety net against mistakes, not a sandbox: only install packs from people you trust.
+- **IPC.** The overlay answers `omarchy-shell shell summon <id> '<json>'` commands: `test`, `notify`, `stop`, `copyKey`, `rightClick`, `yank`, `weatherTest` (and `reload` when `devReload` is on); the bar menu adds `menuState` and `set` (turn on/off, pick the effect or random mode; unknown effects are ignored). Any local program of yours can send these; they can only play effects, nothing else.
 - **Text from outside** (the copied text, link addresses) is always drawn as plain text, never as markup.
 
 ## Update
@@ -140,7 +137,7 @@ omarchy plugin remove io.github.akton1.copyfx
 rm -rf ~/.local/share/omarchy-shell/copyfx
 ```
 
-The second line deletes your config, weather cache and installed packs. Remove the Hyprland binds you added.
+The second line deletes your config and weather cache. Remove the Hyprland binds you added.
 
 ## Troubleshooting
 

@@ -2,7 +2,7 @@
 # Renders a frozen mid-animation frame of every effect into posters/<id>.png (shown on the gallery cards).
 # Uses the offscreen harness at the gallery preview size (264x130). Per-effect frame time: "posterMs" in effect.json (default 600).
 #   tests/make-posters.sh            all effects
-#   tests/make-posters.sh c64 tetris only those
+#   tests/make-posters.sh retro-basic block-drop only those
 dir=$(cd "$(dirname "$0")/.." && pwd)
 mkdir -p "$dir/posters"
 ids=("$@"); [ ${#ids[@]} -eq 0 ] && ids=($(ls "$dir/effects"))

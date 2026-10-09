@@ -1,0 +1,1 @@
+{"name": "Block Drop XXL", "description": "Every letter is a block tile that drops into the playfield; when the text is complete the rows clear.", "anchor": "cursor", "duration": 4200, "maxChars": 120, "xxl": true, "posterMs": 700, "size": "XL", "tags": ["retro", "arcade"]}

@@ -2,16 +2,16 @@ import QtQuick
 import "../.."
 
 // Code rain straight from the ORIGINAL text (no panel behind it): every letter leads its own stream that falls down the
-// screen from where it sits, trailed by film-style katakana and digits.
+// screen from where it sits, trailed by digital-rain katakana and digits.
 SourceText {
   id: fx
 
   readonly property real gs: 1.5          // glyph scale relative to the original letters (1 = exactly their size)
   readonly property int trail: fx.compact ? 8 : 14
 
-  // Film-style glyphs (half-width katakana, digits, a few symbols) fill the trails; the copied letter leads each stream.
-  readonly property string film: "ｦｧｨｩｪｫｬｭｮｯｰｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿﾀﾁﾂﾃﾄﾅﾆﾇﾈﾉﾊﾋﾌﾍﾎﾏﾐﾑﾒﾓﾔﾕﾖﾗﾘﾙﾚﾛﾜﾝ0123456789:.=*+<>"
-  function glyph(letter) { return Math.random() < 0.12 ? letter : fx.film.charAt(Math.floor(Math.random() * fx.film.length)) }
+  // Digital-rain glyphs (half-width katakana, digits, a few symbols) fill the trails; the copied letter leads each stream.
+  readonly property string glyphs: "ｦｧｨｩｪｫｬｭｮｯｰｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿﾀﾁﾂﾃﾄﾅﾆﾇﾈﾉﾊﾋﾌﾍﾎﾏﾐﾑﾒﾓﾔﾕﾖﾗﾘﾙﾚﾛﾜﾝ0123456789:.=*+<>"
+  function glyph(letter) { return Math.random() < 0.12 ? letter : fx.glyphs.charAt(Math.floor(Math.random() * fx.glyphs.length)) }
   function cellsFor(letter) { var c = []; for (var k = 0; k < fx.trail; k++) c.push(fx.glyph(letter)); return c }
 
   property var streams: []      // one per letter: { ch, x, y, d, speed }

@@ -1,10 +1,10 @@
 import QtQuick
 import "../.."
 
-// The film's digital rain, falling out of the real text: every copied letter (cut from the screen) is the bright head of its own
+// Digital rain, falling out of the real text: every copied letter (cut from the screen) is the bright head of its own
 // column and drops away at a constant speed, leaving a long trail of mirrored half-width katakana, digits and symbols that
 // flicker and fade from pale green to black. A second, dimmer column follows some of them. The animation-length box only says how
-// long it runs; the fall distance is always the same (6 cells, +-20% per column like the film), so a longer box = slower and calmer.
+// long it runs; the fall distance is always the same (6 cells, +-20% per column), so a longer box = slower and calmer.
 SpriteText {
   id: fx
   autoRun: false
@@ -76,7 +76,7 @@ SpriteText {
               else { r = 0; gr = Math.round(255 - 110 * s); b = Math.round(65 - 40 * s) }
             }
             ctx.fillStyle = "rgba(" + r + "," + gr + "," + b + "," + a + ")"
-            if (g.m) {                                            // the film's katakana are mirrored
+            if (g.m) {                                            // the katakana are mirrored
               ctx.save(); ctx.translate(u.cx, top + h / 2); ctx.scale(-1, 1); ctx.fillText(g.c, 0, 0); ctx.restore()
             } else ctx.fillText(g.c, u.cx, top + h / 2)
           }

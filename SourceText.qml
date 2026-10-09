@@ -17,7 +17,7 @@ EffectBase {
   property real hlAlpha: 1
   property bool fallbackPanel: true      // draw the plain letters panel when no selection was found
   readonly property var lineRects: fx.hasSel ? fx.rects : [{ x: fbPanel.x, y: fbPanel.y, w: fbPanel.width, h: fbPanel.height }]
-  // Where a walker (Pac-Man, cannon...) is at progress p (0..nLines): line index, x, and that line's rect.
+  // Where a walker (Chomper, cannon...) is at progress p (0..nLines): line index, x, and that line's rect.
   function sweep(p) {
     var li = Math.max(0, Math.min(fx.lineRects.length - 1, Math.floor(p))), r = fx.lineRects[li]
     return { li: li, x: r.x + Math.max(0, Math.min(1, p - li)) * r.w, r: r }

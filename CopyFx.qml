@@ -82,15 +82,13 @@ Item {
   readonly property string configPath: dataDir + "/config.json"
   readonly property string pluginDir: decodeURIComponent(Qt.resolvedUrl(".").toString().replace(/^file:\/\//, "")).replace(/\/$/, "")
   property string effectBase: Qt.resolvedUrl(".").toString()           // where effects/ and the effect base classes are loaded from
-  // ---- effect packs (git repos of extra effects, see bin/copyfx): the plugin's own files and every pack's linted effects are merged into one runtime
-  // tree (a pack effect is "<pack>.<id>"), effects load from there. Also the dev reload: {"reload": "<dir>"} materialises <dir> (see tests/dev-reload.sh).
+  // Dev reload: {"reload": "<dir>"} copies <dir> to a fresh runtime tree and effects load from there (see tests/dev-reload.sh).
   property string effectLocal: root.pluginDir                           // local path of the tree effects/ and posters/ are read from
-  readonly property string packsDir: root.dataDir + "/packs"
   readonly property string liveRoot: root.runDir + "/copyfx-live"
-  function materialise(src, always) {
+  function materialise(src) {
     matProc.src = src
     matProc.target = root.liveRoot + "/v" + String(Date.now())
-    matProc.command = ["python3", src + "/bin/copyfx", "materialise", src, root.packsDir, matProc.target].concat(always ? ["--always"] : [])
+    matProc.command = ["python3", src + "/bin/copyfx", "materialise", src, matProc.target]
     matProc.running = false
     matProc.running = true
   }
@@ -105,8 +103,7 @@ Item {
         if (!r) { console.log("copyfx: materialise failed"); return }
         if (r.built) { root.effectBase = "file://" + matProc.target + "/"; root.effectLocal = matProc.target }
         else { root.effectBase = "file://" + matProc.src + "/"; root.effectLocal = matProc.src }
-        console.log("copyfx: effects from", root.effectLocal, "- packs", r.packs, "pack effects", r.effects)
-        ;(r.skipped || []).forEach(function(k) { console.log("copyfx: pack effect rejected:", k.pack, k.effect || "", (k.problems || []).join("; ")) })
+        console.log("copyfx: effects from", root.effectLocal)
         scanProc.running = false
         scanProc.running = true
       }
@@ -139,7 +136,6 @@ Item {
     }
     if (p.stop) { root.playing = false; fxLoader.setSource("", {}); return }
     if (p.yank) { root.onYank(p.yank); return }
-    if (p.packs) { root.materialise(root.srcDir, false); return }
     if (p.weatherTest !== undefined) { root.weatherOverride = String(p.weatherTest); console.log("copyfx: weather override", root.weatherOverride || "(none)", "->", root.weatherEffectId); return }
     // Dev loop without restarting the whole shell (which flickers the bar): QML types are cached per URL for the life of the shell, so
     // {"reload":true} copies effects/, the effect base classes (EffectBase/SourceText/SpriteText/FxText...) and logic to a fresh
@@ -152,7 +148,7 @@ Item {
       root.galleryOpen = false
       root.playing = false
       fxLoader.setSource("", {})
-      root.materialise(src, true)
+      root.materialise(src)
       return
     }
     if (p.notify) { root.notify(p.notify); return }
@@ -182,7 +178,7 @@ Item {
   function toggle(payloadJson) {
     var p = {}
     try { p = JSON.parse(payloadJson || "{}") } catch (e) {}
-    if (p.test || p.menuState !== undefined || p.set || p.copyKey || p.rightClick || p.notify || p.stop || p.reload || p.yank || p.packs || p.weatherTest !== undefined) root.open(payloadJson)
+    if (p.test || p.menuState !== undefined || p.set || p.copyKey || p.rightClick || p.notify || p.stop || p.reload || p.yank || p.weatherTest !== undefined) root.open(payloadJson)
     else if (root.galleryOpen) root.close()
     else root.open(payloadJson)
   }
@@ -1054,7 +1050,6 @@ Item {
     root.refreshWeather()
     Quickshell.execDetached(["mkdir", "-p", root.dataDir])
     scanProc.running = true
-    root.materialise(root.pluginDir, false)          // merge installed effect packs, if there are any
   }
 
   // ---------- info badge ----------

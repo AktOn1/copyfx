@@ -1,1 +1,0 @@
-{"name": "C64 XXL", "description": "A Commodore 64 screen: READY. / 10 PRINT \"your text\" / RUN. Light blue on blue, blinking cursor.", "anchor": "cursor", "duration": 3000, "maxChars": 160, "xxl": true, "posterMs": 450, "size": "XL", "tags": ["retro", "computer"]}

@@ -1,1 +1,0 @@
-{"name": "Tetris XXL", "description": "Every letter is a tetromino tile that drops into the playfield; when the text is complete the lines clear.", "anchor": "cursor", "duration": 4200, "maxChars": 120, "xxl": true, "posterMs": 700, "size": "XL", "tags": ["retro", "arcade"]}
