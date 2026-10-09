@@ -1,0 +1,1 @@
+{"name": "Text (still, test)", "description": "Test twin of the on-text effects: the shared letter layout, frozen for 8 s.", "anchor": "cursor", "duration": 8000, "maxChars": 1500, "selection": true, "debug": true, "size": "M", "tags": ["debug", "on-text"], "posterMs": 90}

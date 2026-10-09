@@ -1,0 +1,1 @@
+{"name": "Flash RGB", "description": "The whole text blinks red, green, blue.", "anchor": "cursor", "duration": 1500, "maxChars": 1500, "selection": true, "posterMs": 90, "size": "M", "tags": ["letters", "simple", "on-text"]}

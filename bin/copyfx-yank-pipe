@@ -1,0 +1,7 @@
+#!/bin/bash
+# For pipes (tmux copy-pipe, less, ...): stdin = the copied text. Puts it on the system clipboard and tells CopyFX about it.
+#   ... | copyfx-yank-pipe '#3465a4'
+hl=${1:?usage: ... | copyfx-yank-pipe '#rrggbb'}
+text=$(cat)
+printf %s "$text" | wl-copy
+printf %s "$text" | "$(dirname "$(readlink -f "$0")")/copyfx-yank" "$hl"

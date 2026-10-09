@@ -1,0 +1,10 @@
+#!/bin/bash
+# Tell CopyFX "the text on stdin was just copied and is highlighted on screen in this exact colour" (any program can call this):
+#   printf %s "$text" | copyfx-yank '#3465a4'
+# The text goes through a private file in the runtime dir, not through a process argument.
+hl=${1:?usage: ... | copyfx-yank '#rrggbb'}
+dir=${XDG_RUNTIME_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/omarchy-shell/copyfx/run}
+umask 077
+mkdir -p "$dir"
+head -c 100000 > "$dir/copyfx-yank.txt.new" && mv -f "$dir/copyfx-yank.txt.new" "$dir/copyfx-yank.txt"
+omarchy-shell shell summon io.github.akton1.copy-text-effects "$(jq -cn --arg hl "$hl" '{yank: {hl: $hl, file: true}}')"

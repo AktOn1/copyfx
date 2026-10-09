@@ -1,0 +1,1 @@
+{"name": "Tetris", "description": "The original letters drop into place like falling blocks in tetromino colours.", "anchor": "cursor", "duration": 1800, "maxChars": 1500, "posterMs": 90, "size": "M", "tags": ["arcade", "on-text", "retro"], "selection": true}

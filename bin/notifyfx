@@ -1,0 +1,95 @@
+#!/usr/bin/env python3
+"""notifyfx - show a notification through CopyFX's effect engine (any effect, any screen position).
+
+  notifyfx topright --text "Hello world" --duration 100ms
+  notifyfx bottom "Backup finished" --title "Done" --level success -d 4s
+  notifyfx center --effect arcade "New high score"
+  echo "piped text" | notifyfx topleft -
+  notifyfx --list-effects | --list-positions | --stop
+
+Text can be given with --text/-t, as plain words, or as '-' to read stdin. The first word may be a position.
+"""
+import argparse, json, os, re, subprocess, sys
+
+PLUGIN = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+PLUGIN_ID = "io.github.akton1.copy-text-effects"          # rename together with the plugin id
+POSITIONS = ["topleft", "top", "topright", "left", "center", "right", "bottomleft", "bottom", "bottomright", "cursor"]
+LEVELS = ["info", "success", "warn", "error"]
+
+
+def effects():
+    out = []
+    d = os.path.join(PLUGIN, "effects")
+    for name in sorted(os.listdir(d)):
+        try:
+            j = json.load(open(os.path.join(d, name, "effect.json")))
+        except Exception:
+            continue
+        out.append((name, j.get("name", name), j.get("description", ""), bool(j.get("xxl")), bool(j.get("debug"))))
+    return out
+
+
+def parse_duration(s):
+    m = re.fullmatch(r"\s*(\d+(?:\.\d+)?)\s*(ms|s|sec|m|min)?\s*", s or "")
+    if not m:
+        raise argparse.ArgumentTypeError("bad duration %r (examples: 100ms, 2s, 1.5s, 1m)" % s)
+    v, unit = float(m.group(1)), (m.group(2) or "ms")
+    return int(round(v * {"ms": 1, "s": 1000, "sec": 1000, "m": 60000, "min": 60000}[unit]))
+
+
+def send(payload):
+    r = subprocess.run(["omarchy-shell", "shell", "summon", PLUGIN_ID, json.dumps(payload)], capture_output=True, text=True)
+    if r.returncode != 0 or "ok" not in r.stdout:
+        sys.exit("notifyfx: the shell did not accept it (%s). Is the %s plugin enabled?" % ((r.stdout + r.stderr).strip() or "no answer", PLUGIN_ID))
+
+
+def main():
+    ap = argparse.ArgumentParser(prog="notifyfx", description="Show a notification with a CopyFX effect.", epilog=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("words", nargs="*", help="[POSITION] [TEXT...]  (position: %s)" % ", ".join(POSITIONS))
+    ap.add_argument("-t", "--text", help="message text ('-' reads stdin)")
+    ap.add_argument("-T", "--title", default="", help="bold title line (toast)")
+    ap.add_argument("-p", "--position", choices=POSITIONS, help="where on the screen (default: topright; cursor = at the mouse)")
+    ap.add_argument("-d", "--duration", type=parse_duration, help="how long it stays: 100ms, 2s, 1.5s, 1m (default: 3s)")
+    ap.add_argument("-e", "--effect", default="toast", help="effect id, see --list-effects (default: toast)")
+    ap.add_argument("-l", "--level", choices=LEVELS, default="info", help="colour of the toast bar")
+    ap.add_argument("-i", "--icon", default="", help="a glyph or emoji for the toast")
+    ap.add_argument("--json", action="store_true", help="print the payload instead of sending it")
+    ap.add_argument("--stop", action="store_true", help="dismiss the notification that is showing")
+    ap.add_argument("--list-effects", action="store_true", help="list the available effects")
+    ap.add_argument("--list-positions", action="store_true", help="list the screen positions")
+    a = ap.parse_intermixed_args()
+
+    if a.list_positions:
+        print("\n".join(POSITIONS))
+        return
+    if a.list_effects:
+        for i, name, desc, xxl, dbg in effects():
+            print("%-16s %-18s %s%s" % (i, name, "[XXL] " if xxl else "", desc))
+        return
+    if a.stop:
+        send({"stop": True})
+        return
+
+    words = list(a.words)
+    pos = a.position
+    if not pos and words and words[0] in POSITIONS:
+        pos = words.pop(0)
+    text = a.text if a.text is not None else " ".join(words)
+    if text == "-" or (not text and not sys.stdin.isatty() and not a.title):
+        text = sys.stdin.read().strip()
+    if not text and not a.title:
+        ap.error("nothing to show: give some text (or --title)")
+    ids = [e[0] for e in effects()]
+    if a.effect not in ids:
+        ap.error("unknown effect %r (try --list-effects)" % a.effect)
+
+    payload = {"notify": {"text": text, "title": a.title, "position": "" if (pos or "topright") == "cursor" else (pos or "topright"),
+                          "duration": a.duration if a.duration is not None else 3000, "effect": a.effect, "level": a.level, "icon": a.icon}}
+    if a.json:
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
+        return
+    send(payload)
+
+
+if __name__ == "__main__":
+    main()

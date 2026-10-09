@@ -1,0 +1,1 @@
+{"name": "LED Ticker (image)", "description": "An amber LED display: amber letters flicker on a dark dotted block.", "anchor": "cursor", "duration": 1500, "maxChars": 0, "selection": true, "size": "IMG", "tags": ["by-image", "display", "retro"], "posterMs": 90}

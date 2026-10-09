@@ -1,0 +1,1 @@
+{"name": "Flash Run (image)", "description": "The real letters flash red one after another, first to last.", "anchor": "cursor", "duration": 1500, "maxChars": 0, "selection": true, "size": "IMG", "tags": ["by-image", "simple"], "posterMs": 90}

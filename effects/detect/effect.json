@@ -1,0 +1,1 @@
+{"name": "Detect (debug)", "description": "For testing: outlines what the selection detector saw - search area, block, lines, mouse - and says why it failed.", "anchor": "selection", "duration": 3600, "maxChars": 400, "selection": true, "debug": true, "posterMs": 300, "size": "S", "tags": ["debug", "dev"]}

@@ -1,0 +1,8 @@
+#!/bin/bash
+# Run by `wl-paste --primary --watch` every time the PRIMARY selection changes (= text was just selected somewhere). stdin = the selected text.
+# Prints where the mouse and the focused window are and what was selected, so CopyFX can find the highlight right away (while it is
+# on screen and the mouse is still at its end) and use that when the copy comes - even if the mouse has moved away by then.
+# The text is only ever on stdin/stdout (never in a process argument).
+[ "${CLIPBOARD_STATE:-}" = sensitive ] && exit 0
+head -c 4000 | jq -Rsc --slurpfile c <(hyprctl cursorpos -j) --slurpfile w <(hyprctl activewindow -j) \
+  '{x: $c[0].x, y: $c[0].y, win: [($w[0].at[0] // 0), ($w[0].at[1] // 0), ($w[0].size[0] // 0), ($w[0].size[1] // 0)], text: .}'

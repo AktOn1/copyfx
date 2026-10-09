@@ -1,0 +1,1 @@
+{"name": "Ripple", "description": "Sonar rings spread from where the text was.", "anchor": "cursor", "duration": 2000, "maxChars": 1500, "posterMs": 90, "size": "M", "tags": ["clean", "on-text", "source"], "selection": true}

@@ -1,0 +1,1 @@
+{"name": "Pac-Man", "description": "Pac-Man runs along your original text on screen and eats it (a small maze pill when no selection is found).", "anchor": "cursor", "duration": 1800, "maxChars": 1500, "xxl": false, "posterMs": 90, "size": "M", "tags": ["retro", "arcade", "on-text"], "selection": true}

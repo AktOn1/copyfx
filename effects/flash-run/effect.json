@@ -1,0 +1,1 @@
+{"name": "Flash Run", "description": "Every letter of the original text flashes red, one after another, first to last.", "anchor": "cursor", "duration": 1500, "maxChars": 1500, "selection": true, "posterMs": 90, "size": "M", "tags": ["letters", "simple", "on-text"]}

@@ -1,0 +1,1 @@
+{"name": "Image (still, test)", "description": "Test twin of the by-image effects: the cut-out letters frozen for 8 s, to compare pixel for pixel with the original.", "anchor": "cursor", "duration": 1500, "maxChars": 0, "selection": true, "size": "IMG", "tags": ["by-image", "debug"], "posterMs": 90, "debug": true}

@@ -1,0 +1,1 @@
+{"name": "Hexdump (image)", "description": "The bytes of the copied text in hex above the real text, a highlight sweeping through byte by byte and lighting the matching letter.", "anchor": "cursor", "duration": 1500, "maxChars": 0, "selection": true, "size": "IMG", "tags": ["by-image", "dev", "hacker"], "posterMs": 90}

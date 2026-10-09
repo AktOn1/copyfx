@@ -1,0 +1,61 @@
+#!/bin/bash
+# Classify what just landed on the clipboard and print one JSON line. Meant for: wl-paste --watch copyfx-clip
+#   {"type":"text", "text":...}                          (unchanged: handed to Omarchy's capture.sh)
+#   {"type":"files", "verb":"copy|cut", "count", "dirs", "names":[first 3]}
+#   {"type":"image", "mime", "w", "h", "bytes"}          (w/h only for PNG)
+#   {"type":"other", "mime", "types":[...]}              (rich-only, app-private, anything else)
+# Nothing is printed for an empty clipboard or a password-manager copy.
+capture=${COPYFX_CAPTURE:-/usr/share/omarchy/shell/plugins/clipboard/capture.sh}
+
+types=$(wl-paste --list-types 2>/dev/null)
+[ -n "$types" ] || exit 0
+[ "${CLIPBOARD_STATE:-}" = sensitive ] && exit 0
+grep -qx 'x-kde-passwordManagerHint' <<<"$types" && exit 0
+
+if grep -qx 'text/uri-list' <<<"$types"; then
+  verb=copy
+  if grep -qx 'x-special/gnome-copied-files' <<<"$types"; then
+    [ "$(wl-paste --type x-special/gnome-copied-files 2>/dev/null | head -n1)" = cut ] && verb=cut
+  elif grep -qx 'application/x-kde-cutselection' <<<"$types"; then
+    [ "$(wl-paste --type application/x-kde-cutselection 2>/dev/null | head -c1)" = 1 ] && verb=cut
+  fi
+  out=$(wl-paste --type text/uri-list 2>/dev/null | VERB=$verb python3 -c '
+import json, os, sys
+from urllib.parse import unquote, urlparse
+uris = [l.strip() for l in sys.stdin.read().splitlines() if l.strip() and not l.startswith("#")]
+paths = [unquote(urlparse(u).path) for u in uris if u.startswith("file://")]
+if not uris or len(paths) != len(uris):
+    sys.exit(1)
+names = [os.path.basename(p.rstrip("/")) or p for p in paths]
+print(json.dumps({"type": "files", "verb": os.environ["VERB"], "count": len(paths),
+                  "dirs": sum(os.path.isdir(p) for p in paths), "names": names[:3]}, ensure_ascii=False))
+')
+  if [ -n "$out" ]; then printf '%s\n' "$out"; exit 0; fi
+fi
+
+plain=0; grep -qE '^(text/plain|UTF8_STRING$|STRING$)' <<<"$types" && plain=1
+img=$(grep -m1 '^image/' <<<"$types")
+if [ $plain = 0 ] && ! { grep -q '^text/' <<<"$types" && [ -z "$img" ]; }; then
+  if [ -n "$img" ]; then
+    wl-paste --type "$img" 2>/dev/null | MIME=$img python3 -c '
+import json, os, struct, sys
+head = sys.stdin.buffer.read(24)
+size = len(head)
+while True:                      # count the rest in chunks: images can be large
+    chunk = sys.stdin.buffer.read(1 << 20)
+    if not chunk:
+        break
+    size += len(chunk)
+e = {"type": "image", "mime": os.environ["MIME"], "bytes": size}
+if head[:8] == b"\x89PNG\r\n\x1a\n" and len(head) >= 24:
+    e["w"], e["h"] = struct.unpack(">II", head[16:24])
+print(json.dumps(e))
+'
+    exit 0
+  fi
+  jq -cn --arg types "$types" '($types | split("\n") | map(select(length > 0 and (test("^(TARGETS|SAVE_TARGETS|MULTIPLE|TIMESTAMP)$") | not)))) as $t
+    | {type: "other", mime: ($t[0] // ""), types: $t[0:6]}'
+  exit 0
+fi
+
+exec "$capture" text

@@ -1,0 +1,1 @@
+{"name": "Confetti", "description": "The text pops up and a burst of confetti shoots out of it.", "anchor": "cursor", "duration": 2000, "maxChars": 1500, "posterMs": 90, "size": "M", "tags": ["on-text", "party", "playful"], "selection": true}

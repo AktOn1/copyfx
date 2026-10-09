@@ -1,0 +1,1 @@
+{"name": "Typewriter", "description": "The original text is typed out letter by letter with a blinking caret.", "anchor": "cursor", "duration": 2500, "maxChars": 1500, "posterMs": 90, "size": "M", "tags": ["on-text", "retro", "text"], "selection": true}

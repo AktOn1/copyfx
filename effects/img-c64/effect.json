@@ -1,0 +1,1 @@
+{"name": "C64 (image)", "description": "A Commodore 64 screen around the real text: light-blue border, dark-blue screen, light-blue letters, blinking cursor.", "anchor": "cursor", "duration": 1500, "maxChars": 0, "selection": true, "size": "IMG", "tags": ["by-image", "computer", "retro"], "posterMs": 90}

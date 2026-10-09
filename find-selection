@@ -1,0 +1,1120 @@
+#!/usr/bin/env python3
+"""Find the on-screen highlight of the text that was just selected/copied.
+
+Usage: find-selection X Y [WX WY WW WH]   (global layout coordinates of the mouse; captures the screen.
+                                          The optional box is the focused window: only it is searched, so
+                                          highlights in other windows are ignored)
+       find-selection --image FILE X Y    (test mode: X,Y are pixel coordinates inside FILE)
+
+Prints JSON: {"found": bool, "rects": [{"x","y","w","h"}, ...one per text line...],
+              "bg": "#rrggbb", "fg": "#rrggbb", "lineH": n}
+bg/fg are the highlight and text colours when found, otherwise the background and text colour sampled
+around the mouse. Coordinates are global layout coordinates (or image pixels in test mode).
+
+Idea (works for any toolkit, no accessibility API): a selection is drawn as a flat-coloured block behind
+the text and is still visible while you press Ctrl+C. We look for a flat colour that is present right next
+to the mouse (the end of the selection), flood-fill that block and cut it into lines.
+"""
+import io
+import json
+import os
+import subprocess
+import sys
+import time
+
+from PIL import Image, ImageChops, ImageDraw, ImageFilter
+
+REGION_W, REGION_H = 1500, 260
+GROW_SIZES = [(1500, 260), (1500, 640), (1920, 1400)]   # if the selection touches the edge of the capture, look again with a bigger region
+PANEL_CHECK = True                                     # False in hint mode: the crop is cut tight around the block, so the whole-panel test would always fire
+NARROW = False                                         # narrow=1: only the pass right at the mouse (no wide search)
+SCREEN_IMAGE = None                                    # test mode (screen=FILE): a whole-screen screenshot standing in for grim
+SEED_RADIUS = 44          # the mouse ends up on or just beside the end of the selection
+WIDE_RADIUS = int(os.environ.get("COPYFX_WIDE", "220"))         # second pass, when the mouse was moved away from the selection
+MIN_AREA = 300
+PAD_MAX = 7               # max text inset (px) from the highlight's left/right edge on at least one line
+START = time.time()
+BUDGET = float(os.environ.get("COPYFX_BUDGET", "1.5"))              # seconds: stop trying further candidate colours after this (the effect must not wait for long)
+LOG = os.path.expanduser("~/.local/share/omarchy-shell/copyfx/detect.log")
+
+
+SPRITE_KEEP_S = 300
+PALETTE_HUES = [0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330]
+
+
+def palette(accent, named=None):
+    """Tint colours baked into the sprite atlas (rows 1..21): see the comment at the return. `named` = the Omarchy theme's
+    (red, orange, yellow, green, cyan, blue, magenta, foreground) so the tinted letters match the theme; None = classic colours."""
+    import colorsys
+    if named:
+        red, orange, yellow, green, cyan, blue, magenta, fg = named
+        mix = lambda a, b, t: tuple(int(round(a[i] + (b[i] - a[i]) * t)) for i in range(3))
+        white = (255, 255, 255)
+        cols = [red, orange, yellow, mix(yellow, green, 0.5), green, mix(green, cyan, 0.5), cyan, mix(cyan, blue, 0.5), blue,
+                mix(blue, magenta, 0.5), magenta, mix(magenta, red, 0.5)]
+        return cols + [accent, fg, (0, 255, 65), mix(orange, yellow, 0.5), (0x88, 0x7e, 0xcb), green, mix(cyan, white, 0.35),
+                       mix(magenta, white, 0.35), mix(blue, white, 0.35)]
+    cols = [tuple(int(round(v * 255)) for v in colorsys.hls_to_rgb(h / 360.0, 0.6, 0.9)) for h in PALETTE_HUES]
+    # 13 accent, 14 white, 15 matrix green, 16 amber, then the looks of individual effects: 17 C64 light blue, 18 terminal green, 19 hologram cyan, 20 neon pink, 21 hex blue
+    return cols + [accent, (255, 255, 255), (0, 255, 65), (255, 176, 0), (0x88, 0x7e, 0xcb), (0x33, 0xff, 0x66), (0x7f, 0xf9, 0xff), (0xff, 0xb3, 0xec), (0x9e, 0xcb, 0xff)]
+
+
+def build_sprite(im, rects, hl, accent, outdir, native=None, named=None):
+    """Cut the selected text out of the screenshot as a picture: an RGBA atlas that is `rows` copies of the selection's
+    bounding box on top of each other. Row 0 = the letters in their real colours, rows 1.. = the same letters flat-tinted
+    with the palette colours. Highlight-coloured pixels are transparent, so the sprite drawn over a repaint of the
+    highlight reproduces the original pixels; anything outside the line rects is masked away (page around a ragged
+    selection). Returns {"file","x","y","w","h","rows"} in image coordinates."""
+    x0 = max(0, min(r["x"] for r in rects)); y0 = max(0, min(r["y"] for r in rects))
+    x1 = min(im.size[0], max(r["x"] + r["w"] for r in rects)); y1 = min(im.size[1], max(r["y"] + r["h"] for r in rects))
+    if x1 - x0 < 4 or y1 - y0 < 4:
+        return None
+    sc = 1.0
+    if native is not None and native.size != im.size:
+        sc = native.size[0] / float(im.size[0])                   # device pixels per layout pixel
+        im = native
+        rects = [{"x": int(round(r["x"] * sc)), "y": int(round(r["y"] * sc)), "w": int(round(r["w"] * sc)), "h": int(round(r["h"] * sc))} for r in rects]
+        x0, y0 = int(round(x0 * sc)), int(round(y0 * sc))
+        x1, y1 = min(im.size[0], int(round(x1 * sc))), min(im.size[1], int(round(y1 * sc)))
+    crop = im.crop((x0, y0, x1, y1)).convert("RGB")
+    W, H = crop.size
+    r, g, b = ImageChops.difference(crop, Image.new("RGB", crop.size, hl)).split()
+    a = ImageChops.lighter(ImageChops.lighter(r, g), b)
+    top = a.getextrema()[1]
+    span = max(30.0, top * 0.8)
+    alpha = a.point([0 if v < 12 else min(255, int((v - 8) * 255 / (span - 8))) for v in range(256)])
+    mask = Image.new("L", crop.size, 0)
+    md = ImageDraw.Draw(mask)
+    for q in rects:
+        md.rectangle((q["x"] - x0, q["y"] - y0, q["x"] - x0 + q["w"] - 1, q["y"] - y0 + q["h"] - 1), fill=255)
+    alpha = ImageChops.darker(alpha, mask)
+    # Big selections get fewer tint rows (the atlas grows with area x rows: 12 lines would be ~1MB / ~100ms of PNG work).
+    area = W * H
+    want = list(range(1, 22)) if area <= 100000 else [1, 7, 13, 14, 15] if area <= 400000 else []
+    pal_all = palette(accent, named)
+    pal = [pal_all[k - 1] for k in want]
+    atlas = Image.new("RGBA", (W, H * (2 + len(pal))), (0, 0, 0, 0))
+    base = crop.convert("RGBA")
+    base.putalpha(alpha)
+    atlas.paste(base, (0, 0))
+    for k, col in enumerate(pal):
+        t = Image.new("RGBA", (W, H), tuple(col) + (0,))
+        t.putalpha(alpha)
+        atlas.paste(t, (0, H * (k + 1)))
+    exact = crop.convert("RGBA")                        # last row: the pixels exactly as they were (opaque inside the line rects)
+    exact.putalpha(mask)
+    atlas.paste(exact, (0, H * (1 + len(pal))))
+    os.makedirs(outdir, mode=0o700, exist_ok=True)
+    now = time.time()
+    for f in os.listdir(outdir):                       # drop old sprites
+        try:
+            if now - os.path.getmtime(os.path.join(outdir, f)) > SPRITE_KEEP_S:
+                os.remove(os.path.join(outdir, f))
+        except OSError:
+            pass
+    path = os.path.join(outdir, "sel-%d.png" % int(now * 1000))
+    atlas.save(path, compress_level=0 if area > 100000 else 1)
+    return {"file": path, "x": x0 / sc, "y": y0 / sc, "w": W / sc, "h": H / sc, "rows": 2 + len(pal), "tints": want, "scale": sc}
+
+
+def hexc(c):
+    return "#%02x%02x%02x" % tuple(c[:3])
+
+
+def dist(a, b):
+    return sum((a[i] - b[i]) ** 2 for i in range(3))
+
+
+def contrast_colour(im, box, ref):
+    """Colour inside box (one box, or a list of boxes) that differs most from ref - normally the text colour."""
+    boxes = box if isinstance(box, list) else [box]
+    counts = {}
+    area = Image.new("L", im.size, 0)
+    for b in boxes:
+        area.paste(255, b)
+        for n, c in quantize(im.crop(b)).getcolors(maxcolors=200000) or []:     # buckets: the colours drift a little
+            counts[c] = counts.get(c, 0) + n
+    cols = [(n, c) for c, n in counts.items()]
+    total = sum(n for n, _ in cols) or 1
+    cands = [(dist(c, ref), c) for n, c in cols if n >= total * 0.004 and dist(c, ref) > 192]
+    if cands:
+        centre = max(cands)[1]
+        m = ImageChops.darker(color_mask(im, centre, 4), area)                  # refine to the real mean colour of that bucket
+        return mean_colour(im, m) if m.getbbox() else centre
+    return (255, 255, 255) if sum(ref) < 384 else (0, 0, 0)
+
+
+def nearest_set_pixel(mask, cx, cy, r):
+    """Nearest set pixel of an L-mode 0/255 mask within radius r of (cx, cy): (dist^2, x, y) or None.
+    Scans row by row with bytes.find/rfind, so it is C-speed even for a 160px radius."""
+    w, h = mask.size
+    x0, y0, x1, y1 = max(0, cx - r), max(0, cy - r), min(w, cx + r + 1), min(h, cy + r + 1)
+    if x1 <= x0 or y1 <= y0:
+        return None
+    data = mask.crop((x0, y0, x1, y1)).tobytes()
+    cw = x1 - x0
+    lx = min(max(cx - x0, 0), cw - 1)
+    best = None
+    for ry in range(y1 - y0):
+        row = data[ry * cw:(ry + 1) * cw]
+        for px in (row.rfind(b"\xff", 0, lx + 1), row.find(b"\xff", lx)):
+            if px >= 0:
+                dx, dy = px - (cx - x0), (y0 + ry) - cy
+                dd = dx * dx + dy * dy
+                if dd <= r * r and (best is None or dd < best[0]):
+                    best = (dd, x0 + px, y0 + ry)
+    return best
+
+
+def sample_colours(im, cx, cy):
+    w, h = im.size
+    box = (max(0, cx - 100), max(0, cy - 30), min(w, cx + 100), min(h, cy + 30))
+    cols = quantize(im.crop(box)).getcolors(maxcolors=200000) or []
+    cols.sort(reverse=True)
+    bg = cols[0][1] if cols else (0, 0, 0)
+    return bg, contrast_colour(im, box, bg)
+
+
+def estimate_pitch(counts):
+    """Line pitch from the periodic 'text pixels per row' profile (dense text has no clean gaps between lines)."""
+    n = len(counts)
+    if n < 24:
+        return None
+    mean = sum(counts) / n
+    c = [v - mean for v in counts]
+    best = (0.0, None)
+    for pitch in range(10, min(65, n // 2 + 1)):
+        score = sum(c[i] * c[i + pitch] for i in range(n - pitch)) / (n - pitch)
+        if score > best[0]:
+            best = (score, pitch)
+    return best[1]
+
+
+def split_lines(comp, raw, bbox):
+    """Cut the highlight into one rect per text line: (rects in comp coordinates, median line height).
+
+    The block is first cut into occupied row segments (lines whose boxes do not touch give several segments, touching
+    ones a single tall segment); each segment is then divided by the number of text rows inside it, and dense text
+    (descenders touching ascenders) falls back to the periodic line pitch."""
+    x0, y0, x1, y1 = bbox
+    w = x1 - x0
+    h = y1 - y0
+    block = comp.crop(bbox)
+    rawb = raw.crop(bbox)
+    ext = [None] * h
+    counts = [0] * h        # text pixels per row = pixels inside the row's extent that are not plain highlight colour
+    for y in range(h):
+        bb = block.crop((0, y, w, y + 1)).getbbox()
+        if bb:
+            ext[y] = (bb[0], bb[2])
+            counts[y] = max(0, (bb[2] - bb[0]) - rawb.crop((bb[0], y, bb[2], y + 1)).histogram()[255])
+
+    segs, st = [], None
+    for y in range(h):
+        if ext[y] and st is None:
+            st = y
+        elif not ext[y] and st is not None:
+            segs.append((st, y - 1))
+            st = None
+    if st is not None:
+        segs.append((st, h - 1))
+
+    rects = []
+    for a, b in segs:
+        if b - a < 6:
+            continue
+        sh = b - a + 1
+        runs, rs = [], None
+        for y in range(a, b + 1):
+            if counts[y] >= 1 and rs is None:
+                rs = y
+            elif counts[y] < 1 and rs is not None:
+                runs.append((rs, y - 1))
+                rs = None
+        if rs is not None:
+            runs.append((rs, b))
+        runs = [r for r in runs if r[1] - r[0] >= 2]
+        if not runs:
+            continue
+        # A small run touching the block's top/bottom edge is the neighbouring line's descenders/ascenders sticking
+        # into this box (tight line spacing), not a line of its own.
+        main = max(r[1] - r[0] + 1 for r in runs)
+        runs = [r for r in runs if not ((r[0] == a or r[1] == b) and r[1] - r[0] + 1 < 0.45 * main)] or runs
+        n = len(runs)
+        tall = max(r[1] - r[0] + 1 for r in runs)
+        hs_ = sorted(r[1] - r[0] + 1 for r in runs)
+        mixed = n > 1 and hs_[-1] > 1.4 * hs_[0] and hs_[-1] > 22      # lines of different sizes (a title over small print)
+        if mixed:
+            # Several separated text-row runs in one touching band (Chromium highlights every line box, the boxes touch): the lines can have DIFFERENT
+            # heights (a title above small print), so cut between the runs, in the middle of the blank rows, instead of into equal slices.
+            bounds = [a] + [(runs[i][1] + runs[i + 1][0] + 1) // 2 for i in range(n - 1)] + [b + 1]
+            heights = sorted(r[1] - r[0] + 1 for r in runs)
+            med = heights[len(heights) // 2]
+            slots = []
+            for i in range(n):
+                top, bot = bounds[i], bounds[i + 1]
+                rh = runs[i][1] - runs[i][0] + 1
+                k = 1
+                if rh > 30 and rh > 1.7 * med:              # a merged pair of lines: split this run alone by the line pitch inside it
+                    pitch = estimate_pitch(counts[runs[i][0]:runs[i][1] + 1])
+                    if pitch and (bot - top) >= pitch * 1.6:
+                        k = max(1, round((bot - top) / pitch))
+                for j in range(k):
+                    slots.append((top + round(j * (bot - top) / k), top + round((j + 1) * (bot - top) / k)))
+        else:
+            if (n == 1 and sh > 44) or tall > 30:
+                pitch = estimate_pitch(counts[a:b + 1])
+                if pitch and sh >= pitch * 1.6:
+                    n = max(1, round(sh / pitch))
+            slots = [(a + round(i * sh / n), a + round((i + 1) * sh / n)) for i in range(n)]
+        for top, bot in slots:
+            # extent over the first rows of the slice: no glyph pixels there, so the highlight runs edge to edge
+            rows = [ext[y] for y in range(top + 1, min(bot, top + 5)) if ext[y]] or [ext[y] for y in range(top, bot) if ext[y]]
+            if not rows:
+                continue
+            lx, rx = min(r[0] for r in rows), max(r[1] for r in rows)
+            rects.append({"x": x0 + lx, "y": y0 + top, "w": rx - lx, "h": bot - top})
+    if not rects:
+        return None, 0
+    hs = sorted(r["h"] for r in rects)
+    return rects, hs[len(hs) // 2]
+
+
+COLOR_TOL = 8      # per-channel tolerance: translucent windows let the wallpaper shine through, so a "flat" highlight drifts by a few units
+
+
+def color_mask(im, c, tol=COLOR_TOL):
+    """255 where the pixel is within `tol` of colour c on every channel."""
+    r, g, b = ImageChops.difference(im, Image.new("RGB", im.size, c)).split()
+    ok = lambda v: 255 if v <= tol else 0
+    return ImageChops.darker(ImageChops.darker(r.point(ok), g.point(ok)), b.point(ok))
+
+
+def quantize(im, step=8):
+    return im.point(lambda v: (v // step) * step + step // 2)
+
+
+def mean_colour(im, mask):
+    from PIL import ImageStat
+    st = ImageStat.Stat(im, mask=mask)
+    return tuple(int(round(v)) for v in st.mean[:3])
+
+
+def despeckle(mask):
+    """Drop specks of 1-2px (anti-aliased glyph edges that happen to hit the highlight colour); filled blocks stay.
+    (3x3 opening: also removes the 2px stems of ordinary page text that happen to be the highlight colour.)"""
+    return mask.filter(ImageFilter.MinFilter(3)).filter(ImageFilter.MaxFilter(3))
+
+
+def stack_lines(small, max_blocks=400):
+    """A multi-line selection can start at the right end of one line and end at the left of the next: the two highlight
+    boxes are stacked but do not overlap horizontally, so flooding never joins them. Look for further blocks of the
+    same colour directly above/below the flooded region (3 rows of slack) and flood them too."""
+    sw, sh = small.size
+    first = small.point(lambda v: 255 if v == 128 else 0).getbbox()
+    line0 = max(6, (first[3] - first[1]) if first else 6)          # one line's height: the reach is measured in lines
+    reach = max(3, int(round(2.6 * line0)))                          # ...so a selection can span blank lines (terminals do not highlight them)
+    for _ in range(max_blocks):
+        bb = small.point(lambda v: 255 if v == 128 else 0).getbbox()
+        if not bb:
+            break
+        h0 = line0
+        grew = False
+        for y0, y1 in ((bb[1] - reach, bb[1]), (bb[3], bb[3] + reach)):
+            if y0 < 0:
+                y0 = 0
+            if y1 > sh:
+                y1 = sh
+            if y1 <= y0:
+                continue
+            strip = small.crop((0, y0, sw, y1)).point(lambda v: 255 if v == 255 else 0)
+            sb = strip.getbbox()
+            if not sb:
+                continue
+            seed = None
+            order = range(y1 - y0) if y0 >= bb[3] else range(y1 - y0 - 1, -1, -1)     # nearest row to the block first
+            for yy in order:
+                row = strip.crop((0, yy, sw, yy + 1)).getbbox()
+                if row:
+                    seed = (row[0], y0 + yy)
+                    seed_x1 = row[2]
+                    break
+            if not seed:
+                continue
+            # A block of the same colour far to the side (radio buttons, a badge in a sidebar) is not the next line of this selection: the seed must
+            # lie within about twice the block's own width (+ 200px) of it. (small = 1/6 scale)
+            gap = max(0, seed[0] - bb[2], bb[0] - seed_x1)         # distance between the block and the nearest row of the strip (0 = they overlap horizontally)
+            if gap > max(2 * (bb[2] - bb[0]) + 33, 100):
+                continue
+            trial = small.copy()
+            ImageDraw.floodfill(trial, seed, 128)
+            nb = trial.point(lambda v: 255 if v == 128 else 0).getbbox()
+            if nb and (nb[3] - nb[1]) <= 120 * h0:        # not a giant unrelated block (was 8 lines: a longer selection lost everything above its last 8 lines)
+                small = trial
+                grew = True
+        if not grew:
+            break
+    return small
+
+
+def grow_block(im, c, sx, sy):
+    """Flood the highlight colour c from the seed. Lines of one selection whose boxes have small gaps between them are
+    bridged (on a shrunken copy) so they count as one block. Returns (comp, raw, bbox) with comp = 255 where the
+    selection's highlight is."""
+    w, h = im.size
+    raw = color_mask(im, c)
+    # Where the highlight colour is FLAT (little drift) use a tight tolerance: some pages colour their links almost exactly like the selection (Wikipedia's
+    # #3366cc next to a light-blue highlight) and the loose tolerance would fuse words of those links into the block.
+    n8 = raw.histogram()[255]
+    if n8:
+        tight = color_mask(im, mean_colour(im, raw), 4)
+        extra = ImageChops.subtract(raw, tight)                       # pixels only the loose tolerance accepts
+        n_extra = extra.histogram()[255]
+        # ... are they thin strokes (glyphs of such a link: gone after a 3x3 opening) or solid areas (a highlight that drifts across a translucent window)?
+        if n_extra and tight.histogram()[255] >= 0.6 * n8 and despeckle(extra).histogram()[255] < 0.3 * n_extra:
+            raw = tight
+    m = despeckle(raw).filter(ImageFilter.MaxFilter(5)).filter(ImageFilter.MinFilter(5))
+    f = 6
+    small = m.resize((max(1, w // f), h), Image.BOX).point(lambda v: 255 if v >= 16 else 0)
+    small = small.filter(ImageFilter.MaxFilter(13)).filter(ImageFilter.MinFilter(13))
+    px, py = min(small.size[0] - 1, sx // f), sy
+    for dx in (0, -1, 1, -2, 2):          # the seed may sit on a partly covered edge column
+        if 0 <= px + dx < small.size[0] and small.getpixel((px + dx, py)):
+            px += dx
+            break
+    if small.getpixel((px, py)) == 0:
+        # seed fell into a crack of the shrunken copy: fill the plain mask instead
+        ImageDraw.floodfill(m, (sx, sy), 128)
+        comp = m.point(lambda v: 255 if v == 128 else 0)
+    else:
+        ImageDraw.floodfill(small, (px, py), 128)
+        small = stack_lines(small)
+        region = small.point(lambda v: 255 if v == 128 else 0).resize((w, h), Image.NEAREST)
+        # Inside the bridged region take the exact highlight pixels (not the despeckled ones: for a tight highlight that is
+        # mostly covered by letters, despeckling deletes the slivers between the letters and would leave two thin bands).
+        comp = ImageChops.darker(region, raw).filter(ImageFilter.MaxFilter(5)).filter(ImageFilter.MinFilter(5))
+        comp = ImageChops.darker(comp, region)
+    return comp, raw, comp.getbbox()
+
+
+def extend_lines(raw, rects):
+    """The block was found on a despeckled mask, which loses the thin highlight bands above/below letters in tight text
+    (terminals: ~2px), so a line can come out too short. Follow the exact highlight colour along the line's top/bottom
+    rows (letters may interrupt it: up to ~0.8 line heights, a wide letter of tight text) to find where it starts/ends."""
+    w, h = raw.size
+    px = raw.load()
+    out = []
+    for r in rects:
+        x0, x1 = r["x"], r["x"] + r["w"]
+        max_gap = max(4, int(r["h"] * 0.8))
+        for y in [r["y"] + k for k in range(1, r["h"] - 1)]:
+            if not 0 <= y < h:
+                continue
+            xs = [x for x in range(max(0, x0), min(w, x1)) if px[x, y]]
+            if not xs:
+                continue
+            a, b = xs[0], xs[-1]
+            gap, x = 0, b + 1
+            while x < w and gap <= max_gap:            # follow to the right
+                if px[x, y]:
+                    b, gap = x, 0
+                else:
+                    gap += 1
+                x += 1
+            gap, x = 0, a - 1
+            while x >= 0 and gap <= max_gap:           # and to the left
+                if px[x, y]:
+                    a, gap = x, 0
+                else:
+                    gap += 1
+                x -= 1
+            x0, x1 = min(x0, a), max(x1, b + 1)
+        out.append({"x": x0, "y": r["y"], "w": x1 - x0, "h": r["h"]})
+    return out
+
+
+def ink_mask(raw, bx):
+    """Non-highlight pixels of a line box (255), without the runs of page pixels that touch its top or bottom edge. A box that is a few
+    pixels taller than its highlight (lines of a list/paragraph with a gap between them) or overlaps the neighbouring line's highlight
+    holds page pixels in those rows, wherever the neighbour is not highlighted: counted as ink they would fill every column there."""
+    ink = ImageChops.invert(raw.crop(bx))
+    w, h = ink.size
+    if w < 1 or h < 8:
+        return ink
+    cap = max(3, int(h * 0.4))
+    data = bytearray(ink.tobytes())
+    for x in range(w):
+        y = 0
+        while y < h and data[y * w + x]:
+            y += 1
+        if 0 < y <= cap:
+            for k in range(y):
+                data[k * w + x] = 0
+        y = h - 1
+        while y >= 0 and data[y * w + x]:
+            y -= 1
+        if 0 <= y and 0 < h - 1 - y <= cap:
+            for k in range(y + 1, h):
+                data[k * w + x] = 0
+    return Image.frombytes("L", (w, h), bytes(data))
+
+
+def measure_rect(raw, r):
+    """Fill in a line rect's ink insets (il/ir/it/ib) and the blank column runs between its letters (gaps, relative to the rect's left edge)."""
+    bx = (r["x"], r["y"], r["x"] + r["w"], r["y"] + r["h"])
+    ink = ink_mask(raw, bx)
+    tb = ink.getbbox()
+    if tb:
+        r["il"], r["ir"], r["it"], r["ib"] = tb[0], r["w"] - tb[2], tb[1], r["h"] - tb[3]
+    else:
+        r["il"] = r["ir"] = r["it"] = r["ib"] = 0
+    # Blank column runs between the letters (>= 1px): candidate word gaps.
+    cols = ink.resize((r["w"], 1), Image.BOX).load()
+    gaps, x = [], r["il"]
+    while x < r["w"] - r["ir"]:
+        if cols[x, 0] == 0:
+            y0 = x
+            while x < r["w"] - r["ir"] and cols[x, 0] == 0:
+                x += 1
+            if x - y0 >= 1:
+                gaps.append([y0, x])
+        else:
+            x += 1
+    r["gaps"] = gaps
+
+
+def polish_rects(raw, rects):
+    """Line boxes of a tightly set list/paragraph selection come out a few pixels off: one line cut in two boxes (same x and width, stacked),
+    boxes that reach into the gap between two lines. Join the stacked halves, trim top/bottom rows that are (almost) not highlight, re-measure."""
+    if not rects:
+        return rects
+    hs = sorted(r["h"] for r in rects)
+    med = hs[len(hs) // 2]
+    out = []
+    for r in sorted(rects, key=lambda q: (q["y"], q["x"])):
+        p = out[-1] if out else None
+        if p and abs(p["x"] - r["x"]) <= 2 and abs(p["w"] - r["w"]) <= 2 and abs(p["y"] + p["h"] - r["y"]) <= 1 and p["h"] + r["h"] <= 1.6 * med and (p["h"] < 0.8 * med or r["h"] < 0.8 * med):
+            p["h"] = r["y"] + r["h"] - p["y"]
+            p["w"] = max(p["w"], r["w"])
+            continue
+        out.append(dict(r))
+    W, H = raw.size
+    px = raw.load()
+    for r in out:
+        x0, x1 = max(0, r["x"]), min(W, r["x"] + r["w"])
+        if x1 - x0 < 1:
+            continue
+        def frac(y):
+            if y < 0 or y >= H:
+                return 0.0
+            return sum(1 for x in range(x0, x1) if px[x, y]) / float(x1 - x0)
+        top, bot = r["y"], r["y"] + r["h"]
+        while bot - top > 8 and frac(top) < 0.15:
+            top += 1
+        while bot - top > 8 and frac(bot - 1) < 0.15:
+            bot -= 1
+        r["y"], r["h"] = top, bot - top
+        measure_rect(raw, r)
+    return out
+
+
+def validate(im, c, sx, sy, dbg):
+    w, h = im.size
+    comp, raw, bbox = grow_block(im, c, sx, sy)
+    if not bbox:
+        return None, "empty block"
+    bw, bh = bbox[2] - bbox[0], bbox[3] - bbox[1]
+    dbg["block"] = [bbox[0], bbox[1], bw, bh]
+    if not (bw * bh >= MIN_AREA and bh >= 8 and bw >= 12):
+        return None, "block too small (%dx%d)" % (bw, bh)
+    if PANEL_CHECK and not bw * bh < 0.6 * w * h:
+        return None, "block is a whole panel (%dx%d)" % (bw, bh)
+    rects, line_h = split_lines(comp, raw, bbox)
+    if not rects:
+        return None, "no text inside the block"
+    rects = extend_lines(raw, [r for r in rects if r["w"] >= 12])          # (drops stray slivers, restores thin-band ends)
+    if not rects or not 10 <= line_h <= 64:
+        return None, "odd line height %s" % line_h
+    boxes = [(r["x"], r["y"], r["x"] + r["w"], r["y"] + r["h"]) for r in rects]
+    c = mean_colour(im, ImageChops.darker(comp, raw))     # the actual highlight colour: mean of the highlight pixels only (not the letters)
+    fg = contrast_colour(im, boxes, c)
+    if dist(c, fg) < 15000:
+        return None, "text not readable on it (%s on %s)" % (hexc(fg), hexc(c))
+    # Ink extents of the text inside each line's box: left/right/top/bottom distance from the box edge to the letters.
+    # A real selection hugs its text (the highlight is as wide as the text and only a little taller); buttons, badges
+    # and whole panel backgrounds pad it (>= ~8px sideways, more than ~45% of a line above/below).
+    for r in rects:
+        measure_rect(raw, r)
+    padded = []
+    for r in rects:
+        band = (r["x"], r["y"] + int(r["h"] * 0.3), r["x"] + r["w"], r["y"] + max(int(r["h"] * 0.3) + 1, int(r["h"] * 0.7)))
+        tb = ImageChops.invert(raw.crop(band)).getbbox()          # middle rows: skips rounded corners
+        if tb and min(tb[0], r["w"] - tb[2]) > PAD_MAX:
+            padded.append(min(tb[0], r["w"] - tb[2]))
+    # A button / badge pads ITS text on every line; in a long selection one odd line (a heading with a link box next to it, a ragged edge) must not
+    # reject the whole block: with several lines it takes most of them to look like a panel.
+    if PANEL_CHECK and padded and (len(rects) == 1 or len(padded) >= 0.6 * len(rects)):
+        return None, "text is padded inside the block (%dpx): looks like a button/badge/panel" % min(padded)
+    if PANEL_CHECK and (rects[0]["it"] > 0.45 * rects[0]["h"] or rects[-1]["ib"] > 0.45 * rects[-1]["h"]):
+        return None, "space above/below the text (%d/%dpx): looks like a panel, not a selection" % (rects[0]["it"], rects[-1]["ib"])
+    return ({"found": True, "rects": rects, "lineH": line_h}, c, fg), "ok"
+
+
+def find_block(im, cx, cy, radius, dbg):
+    """One search pass. Candidate highlight colours are the frequent flat colours around the mouse; they are tried in
+    order of distance from the mouse (the mouse may sit on a letter, so the nearest colour is often the text colour)
+    until one of them grows into a block of text lines."""
+    w, h = im.size
+    nx0, ny0, nx1, ny1 = max(0, cx - radius), max(0, cy - radius), min(w, cx + radius), min(h, cy + radius)
+    near = im.crop((nx0, ny0, nx1, ny1))
+    ncols = quantize(near).getcolors(maxcolors=near.size[0] * near.size[1]) or []
+    ncols.sort(reverse=True)
+    page_bg = quantize(im.resize((max(1, w // 8), max(1, h // 8)), Image.NEAREST)).getcolors(maxcolors=100000) or [(1, (0, 0, 0))]
+    page_bg = max(page_bg)[1]
+    # A highlight must stand clearly apart from the page (dark UI panels next to the mouse are not selections).
+    cands = [(n, c) for n, c in ncols if n >= 40 and dist(c, page_bg) >= 1800][:int(os.environ.get("COPYFX_NC", "10"))]
+    dbg["cands"] = [[hexc(c), n] for n, c in cands]
+    if not cands:
+        return None, "no candidate colour near the mouse"
+
+    seeded = []
+    for n, c in cands:
+        nm = despeckle(color_mask(near, c))
+        bb = nm.getbbox()
+        if not bb or bb[2] - bb[0] < 12 or bb[3] - bb[1] < 8:
+            continue
+        if radius == SEED_RADIUS and nm.histogram()[255] / float((bb[2] - bb[0]) * (bb[3] - bb[1])) < 0.35:
+            continue        # scattered pixels (text), not a filled block (skipped on the wide pass: block is mostly off-crop)
+        seed = nearest_set_pixel(nm, cx - nx0, cy - ny0, radius)
+        if seed:
+            # Tie-break for a mouse on the EDGE of the selection (both the highlight and the page next to it are within reach):
+            # bucket the distance, then prefer the colour that covers less of the whole screenshot - a selection is small,
+            # the panel or page around it is big.
+            seeded.append((int(seed[0] ** 0.5 // (6 if radius == SEED_RADIUS else int(os.environ.get("COPYFX_B2", "90")))), color_mask(im, c).histogram()[255], -n, c, nx0 + seed[1], ny0 + seed[2]))
+    if not seeded:
+        return None, "no filled block of a candidate colour within %dpx of the mouse" % radius
+    seeded.sort()
+    why = ""
+    for dq, _g, _, c, sx, sy in seeded:
+        if time.time() - START > BUDGET:
+            return None, "gave up after %.1fs" % BUDGET
+        found, why = validate(im, c, sx, sy, dbg)
+        if found:
+            dbg["hl"] = hexc(c)
+            dbg["seed_dist"] = dq * (6 if radius == SEED_RADIUS else int(os.environ.get("COPYFX_B2", "90")))
+            return found, "ok"
+    return None, why
+
+
+def detect(im, cx, cy, dbg):
+    global START
+    START = time.time()
+    im = im.convert("RGB")
+    result = {"found": False, "rects": [], "lineH": 0}
+    reasons = []
+    for radius in ((SEED_RADIUS,) if NARROW else (SEED_RADIUS, WIDE_RADIUS)):     # second pass: the mouse may have been moved off the selection
+        dbg["pass"] = 1 if radius == SEED_RADIUS else 2
+        dbg.pop("block", None)
+        found, why = find_block(im, cx, cy, radius, dbg)
+        if found:
+            dbg["reason"] = "ok"
+            return found
+        reasons.append(why)
+    dbg["reason"] = reasons[-1] if reasons[0] == reasons[-1] else "%s | wide: %s" % (reasons[0], reasons[-1])
+    bg, fg = sample_colours(im, cx, cy)
+    return result, bg, fg
+
+
+def capture(x, y, win=None, whole=False, size=None):
+    """Screenshot of a REGION_W x REGION_H patch around (x, y), kept inside the monitor under the mouse
+    (and inside the focused window win=(x, y, w, h) when the mouse is over it)."""
+    rw, rh = size or (REGION_W, REGION_H)
+    mon = (0, 0, 1 << 30, 1 << 30)
+    if SCREEN_IMAGE is not None:
+        mon = (0, 0, SCREEN_IMAGE.size[0], SCREEN_IMAGE.size[1])
+    try:
+        if SCREEN_IMAGE is not None:
+            raise RuntimeError("test mode")
+        out = subprocess.run(["hyprctl", "monitors", "-j"], capture_output=True, text=True, timeout=2).stdout
+        for m in json.loads(out):
+            sc = float(m.get("scale") or 1.0)
+            lw, lh = int(round(m["width"] / sc)), int(round(m["height"] / sc))         # width/height are device pixels: layout size = pixels / scale
+            if m["x"] <= x < m["x"] + lw and m["y"] <= y < m["y"] + lh:
+                mon = (m["x"], m["y"], m["x"] + lw, m["y"] + lh)
+                break
+    except Exception:
+        pass
+    gx = max(mon[0], min(x - rw // 2, mon[2] - rw))
+    gy = max(mon[1], min(y - rh // 2, mon[3] - rh))
+    gw = min(rw, mon[2] - mon[0])
+    gh = min(rh, mon[3] - mon[1])
+    outside = False
+    if whole and win and win[2] > 0 and win[3] > 0:               # hint mode: the highlight can be anywhere in the focused window
+        gx, gy = max(mon[0], win[0]), max(mon[1], win[1])
+        gw, gh = min(mon[2], win[0] + win[2]) - gx, min(mon[3], win[1] + win[3]) - gy
+    elif win and win[2] > 0 and win[3] > 0:
+        if win[0] <= x < win[0] + win[2] and win[1] <= y < win[1] + win[3]:
+            x0, y0 = max(gx, win[0]), max(gy, win[1])
+            x1, y1 = min(gx + gw, win[0] + win[2]), min(gy + gh, win[1] + win[3])
+            if x1 - x0 >= 60 and y1 - y0 >= 30:
+                gx, gy, gw, gh = x0, y0, x1 - x0, y1 - y0
+        else:
+            outside = True          # the mouse is over some other window: the copy did not come from under it
+    if SCREEN_IMAGE is not None:
+        native = SCREEN_IMAGE.crop((gx, gy, gx + gw, gy + gh))
+    else:
+        png = subprocess.run(["grim", "-g", "%d,%d %dx%d" % (gx, gy, gw, gh), "-t", "ppm", "-"],
+                             capture_output=True, timeout=4).stdout
+        native = Image.open(io.BytesIO(png))
+    im = native
+    if native.size != (gw, gh):
+        # HiDPI: grim captured device pixels. Detection is tuned for layout pixels, so look at a downscaled copy and keep the
+        # native one for the sprite (it is drawn 1:1 on the device by the overlay).
+        im = native.resize((gw, gh), Image.BOX)
+    return im, gx, gy, outside, native
+
+
+def include_cursor(im, rects, line_h):
+    """A terminal's block cursor sits on the FIRST cell of a Neovim yank or the LAST cell of a tmux copy, and it is not drawn in the highlight
+    colour, so the highlight looks one cell shorter. Extend the first line to the left / the last line to the right over columns that are
+    filled with the cursor colour (the letter under the cursor is inked inside the block, so allow a 2px gap)."""
+    if not rects:
+        return
+    px = im.load()
+    W = im.size[0]
+    for side, r in (("left", rects[0]), ("right", rects[-1])):
+        y0, y1 = r["y"] + 2, r["y"] + r["h"] - 2
+        if y1 - y0 < 4:
+            continue
+        edge = r["x"] if side == "left" else r["x"] + r["w"]         # first column outside the highlight is edge-1 (left) or edge (right)
+        step = -1 if side == "left" else 1
+        first = edge - 1 if side == "left" else edge
+        if not 0 <= first < W:
+            continue
+        # the page background next to the selection: the commonest colour in a strip beyond the cursor cell
+        a0, a1 = (max(0, edge - int(line_h * 3)), edge) if side == "left" else (edge, min(W, edge + int(line_h * 3)))
+        strip = im.crop((a0, y0, a1, y1))
+        cols = strip.getcolors(maxcolors=strip.size[0] * strip.size[1] + 1) or []
+        if not cols:
+            continue
+        bgc = max(cols)[1]
+        col = {}
+        for yy in range(y0, y1):
+            col[px[first, yy]] = col.get(px[first, yy], 0) + 1
+        cur = max(col, key=col.get)
+        if dist(cur, bgc) <= 900:
+            continue                                                # the neighbouring column is plain background: no cursor here
+
+        def filled(xx):
+            return 0 <= xx < W and sum(1 for yy in range(y0, y1) if dist(px[xx, yy], cur) <= 300) >= 0.5 * (y1 - y0)
+        x, n = first, 0
+        while n < int(line_h * 1.2):
+            if not filled(x):
+                if not (filled(x + step) or filled(x + 2 * step)):
+                    break
+            x += step
+            n += 1
+        if n:
+            if side == "left":
+                r["x"] -= n
+                for g in r.get("gaps", []):
+                    g[0] += n
+                    g[1] += n
+            r["w"] += n
+
+
+def detect_hint(im, hex_colour, dbg, near=None):
+    """The highlight's exact colour is known (a program told us: e.g. Neovim's yank highlight): find that colour anywhere in the image
+    (a cheap search on a 1/4 size copy), then run the normal block analysis on a crop around it. Same return value as detect()."""
+    im = im.convert("RGB")
+    c = tuple(int(hex_colour.lstrip("#")[i:i + 2], 16) for i in (0, 2, 4))
+    result = {"found": False, "rects": [], "lineH": 0}
+    small = im.reduce(4)
+    bb = color_mask(small, c, 14).getbbox()
+    if not bb:
+        dbg["reason"] = "hint colour %s not on screen" % hex_colour
+        bg, fg = sample_colours(im, im.size[0] // 2, im.size[1] // 2)
+        return result, bg, fg
+    m = 28
+    x0, y0 = max(0, bb[0] * 4 - m), max(0, bb[1] * 4 - m)
+    x1, y1 = min(im.size[0], bb[2] * 4 + m), min(im.size[1], bb[3] * 4 + m)
+    crop = im.crop((x0, y0, x1, y1))
+    mask = despeckle(color_mask(crop, c))
+    sx0, sy0 = (near[0] - x0, near[1] - y0) if near else (crop.size[0] // 2, crop.size[1] // 2)
+    seed = nearest_set_pixel(mask, sx0, sy0, max(crop.size))
+    if not seed:
+        dbg["reason"] = "hint colour found but no filled block"
+        bg, fg = sample_colours(im, im.size[0] // 2, im.size[1] // 2)
+        return result, bg, fg
+    global MIN_AREA, PANEL_CHECK
+    saved, MIN_AREA, PANEL_CHECK = MIN_AREA, 90, False      # the colour is exact and the search is not mouse-anchored, so a 2-cell yank is fine
+    try:
+        found, why = validate(crop, c, seed[1], seed[2], dbg)
+    finally:
+        MIN_AREA, PANEL_CHECK = saved, True
+    if not found:
+        dbg["reason"] = why
+        bg, fg = sample_colours(im, im.size[0] // 2, im.size[1] // 2)
+        return result, bg, fg
+    res, hl, fg = found
+    # Highlighted pictures (a tinted thumbnail, an icon) come out as "lines" of pure highlight colour with no letters in them: drop those.
+    cm = color_mask(crop, c, 40)
+    res["rects"] = [r for r in res["rects"] if r["w"] >= 6 and cm.crop((r["x"], r["y"], r["x"] + r["w"], r["y"] + r["h"])).histogram()[255] < 0.985 * r["w"] * r["h"]] or res["rects"]
+    include_cursor(crop, res["rects"], res["lineH"])
+    for r in res["rects"]:
+        r["x"] += x0
+        r["y"] += y0
+    if "block" in dbg:
+        dbg["block"][0] += x0
+        dbg["block"][1] += y0
+    dbg["reason"] = "ok"
+    dbg["hl"] = hexc(hl)
+    return res, hl, fg
+
+
+def _runs(flags):
+    """[(start, end)) runs of True in a 1-D bool array."""
+    out, s = [], None
+    for i, v in enumerate(flags):
+        if v and s is None:
+            s = i
+        elif not v and s is not None:
+            out.append((s, i))
+            s = None
+    if s is not None:
+        out.append((s, len(flags)))
+    return out
+
+
+def detect_link(im, cx, cy, dbg):
+    """A link has no highlight (right-click > Copy link address): find the link's text where the mouse was right-clicked. First choice is the
+    underline (a row of ink much longer than a letter, with letters right above it); otherwise the word under the click, extended over neighbouring
+    words of the same colour when that colour differs from the rest of the line (a coloured link). Same return value as detect()."""
+    import numpy as np
+    im = im.convert("RGB")
+    W, H = im.size
+    result = {"found": False, "rects": [], "lineH": 0}
+    sx0, sx1, sy0, sy1 = max(0, cx - 150), min(W, cx + 150), max(0, cy - 14), min(H, cy + 14)
+    cols = im.crop((sx0, sy0, sx1, sy1)).getcolors(maxcolors=200000) or []
+    bg = max(cols)[1] if cols else (0, 0, 0)
+    a = np.asarray(im).astype(np.int16)
+    diff = np.abs(a - np.array(bg, dtype=np.int16)).max(axis=2)
+    ink = diff > 28
+    fg = contrast_colour(im, (sx0, sy0, sx1, sy1), bg)
+    # the text line the click is on: contiguous rows with ink (a 1-2 row gap, like the one above an underline, does not end it)
+    xa, xb = max(0, cx - 80), min(W, cx + 80)
+    rows = ink[:, xa:xb].sum(axis=1) > 0
+    near = [y for y in range(max(0, cy - 12), min(H, cy + 13)) if rows[y]]
+    if not near:
+        dbg["reason"] = "link: nothing but background at the click"
+        return result, bg, fg
+    seed_y = min(near, key=lambda y: abs(y - cy))
+    top = bot = seed_y
+    gap = 0
+    for y in range(seed_y - 1, -1, -1):
+        gap = 0 if rows[y] else gap + 1
+        if gap > 2:
+            break
+        if rows[y]:
+            top = y
+    gap = 0
+    for y in range(seed_y + 1, H):
+        gap = 0 if rows[y] else gap + 1
+        if gap > 2:
+            break
+        if rows[y]:
+            bot = y
+    band_h = bot - top + 1
+    # 1) the underline
+    best = None
+    for y in range(max(top, bot - 6), bot + 1):
+        merged = []
+        for s, e in _runs(ink[y, :]):
+            if merged and s - merged[-1][1] <= 6:
+                merged[-1] = (merged[-1][0], e)
+            else:
+                merged.append((s, e))
+        for s, e in merged:
+            ln = e - s
+            if ln < 12 or ln > 0.9 * W or not (s - 4 <= cx < e + 4):
+                continue
+            if ink[y, s:e].mean() < 0.8:
+                continue                                            # letters (descenders) in one row, not a line
+            above = ink[max(top, y - 20):max(top, y - 1), s:e]
+            if above.size == 0 or above.any(axis=0).mean() < 0.4:
+                continue                                            # a rule line, not an underline
+            if best is None or ln > best[2] - best[1]:
+                best = (y, s, e)
+    if best:
+        uy, ux0, ux1 = best
+        t = uy
+        gap = 0
+        for y in range(uy - 1, -1, -1):
+            has = ink[y, ux0:ux1].any()
+            gap = 0 if has else gap + 1
+            if gap > 2:
+                break
+            if has:
+                t = y
+        b = uy
+        for y in range(uy + 1, min(H, uy + 3)):
+            if ink[y, ux0:ux1].any():
+                b = y
+        dbg["reason"] = "link: underline"
+        return _link_result(bg, fg, ux0, t, ux1, b, W, H, dbg)
+    # 2) a word / a run of same-coloured words
+    colink = ink[top:bot + 1, :].any(axis=0)
+    wgap = max(2, int(round(band_h * 0.2)))
+    words = []
+    for s, e in _runs(colink):
+        if words and s - words[-1][1] <= wgap:
+            words[-1] = (words[-1][0], e)
+        else:
+            words.append((s, e))
+    seed = None
+    for w in words:
+        if w[0] - 10 <= cx < w[1] + 10:
+            if seed is None or abs((w[0] + w[1]) / 2.0 - cx) < abs((seed[0] + seed[1]) / 2.0 - cx):
+                seed = w
+    if seed is None:
+        dbg["reason"] = "link: no text next to the click"
+        return result, bg, fg
+
+    def colour_of(s, e):
+        d = diff[top:bot + 1, s:e]
+        if not d.size or not d.max():
+            return None
+        m = d >= 0.85 * d.max()
+        return a[top:bot + 1, s:e][m].mean(axis=0)
+    c0 = colour_of(*seed)
+    allc = colour_of(max(0, cx - 400), min(W, cx + 400))
+    lo, hi = seed
+    if c0 is not None and allc is not None and np.abs(c0 - allc).max() > 40:
+        wd = max(5, band_h * 0.9)
+        for direction in (-1, 1):
+            while True:
+                if direction < 0:
+                    cands = [w for w in words if w[1] <= lo and lo - w[1] <= wd]
+                else:
+                    cands = [w for w in words if w[0] >= hi and w[0] - hi <= wd]
+                if not cands:
+                    break
+                n = max(cands, key=lambda w: w[1]) if direction < 0 else min(cands, key=lambda w: w[0])
+                cn = colour_of(*n)
+                if cn is None or np.abs(cn - c0).max() > 40:
+                    break
+                lo, hi = (n[0], hi) if direction < 0 else (lo, n[1])
+        dbg["reason"] = "link: coloured words"
+    else:
+        dbg["reason"] = "link: the word under the click (same colour as the line)"
+    return _link_result(bg, fg, lo, top, hi, bot, W, H, dbg)
+
+
+def _link_result(bg, fg, x0, y0, x1, y1, W, H, dbg):
+    pad = 2                                         # background above/below the letters: the ink measurement ignores ink that touches the box edge
+    r = {"x": int(max(0, x0 - 1)), "y": int(max(0, y0 - pad))}
+    r["w"] = int(min(W, x1 + 1) - r["x"])
+    r["h"] = int(min(H, y1 + 1 + pad) - r["y"])
+    dbg["link"] = [r["x"], r["y"], r["w"], r["h"]]
+    if r["w"] < 6 or r["h"] < 6:
+        return {"found": False, "rects": [], "lineH": 0}, bg, fg
+    return {"found": True, "rects": [r], "lineH": r["h"]}, bg, fg
+
+
+def verify(hex_colour, rect_str):
+    """Is a cached detection still true? One small fresh capture around the cached rects (+ a line of margin above/below): the highlight colour must
+    still fill the rects, and must NOT continue right above the first / below the last rect (the selection would be longer than the cache says)."""
+    c = tuple(int(hex_colour.lstrip("#")[i:i + 2], 16) for i in (0, 2, 4))
+    rects = [tuple(int(float(v)) for v in part.split(",")) for part in rect_str.split(";") if part]
+    if not rects:
+        return {"ok": False, "why": "no rects"}
+    lh = max(r[3] for r in rects)
+    m = int(2.8 * lh) + 2
+    x0, y0 = min(r[0] for r in rects), min(r[1] for r in rects)
+    x1, y1 = max(r[0] + r[2] for r in rects), max(r[1] + r[3] for r in rects)
+    px0, py0, pw, ph = x0 - 6, y0 - m, (x1 - x0) + 12, (y1 - y0) + 2 * m
+    im, gx, gy, _, _ = capture(px0 + pw // 2, py0 + ph // 2, None, size=(pw, ph))
+    im = im.convert("RGB")
+    mask = color_mask(im, c, 24)
+    def frac(rx, ry, rw, rh):
+        rx, ry = rx - gx, ry - gy
+        rx0, ry0, rx1, ry1 = max(0, rx), max(0, ry), min(im.size[0], rx + rw), min(im.size[1], ry + rh)
+        if rx1 <= rx0 or ry1 <= ry0:
+            return None
+        return mask.crop((rx0, ry0, rx1, ry1)).histogram()[255] / float((rx1 - rx0) * (ry1 - ry0))
+    bad = 0
+    for r in rects:
+        f = frac(*r)
+        if f is None or f < 0.3:
+            bad += 1
+    if bad > max(0, len(rects) // 10):
+        return {"ok": False, "why": "the highlight colour is no longer under %d of %d cached lines" % (bad, len(rects))}
+    top = min(rects, key=lambda r: r[1])
+    bot = max(rects, key=lambda r: r[1] + r[3])
+    for name, edge, sign in (("above", top[1], -1), ("below", bot[1] + bot[3], 1)):
+        # the same colour again within ~2.7 lines (paragraph gaps, blank lines): the selection is longer than the cache says
+        for k in range(0, int(2.7 * lh) - lh // 2, max(2, lh // 3)):
+            y = edge - lh - k if sign < 0 else edge + 1 + k
+            if (frac(x0, y, x1 - x0, lh - 1) or 0) >= 0.2:
+                return {"ok": False, "why": "the highlight continues " + name + " the cached lines"}
+    return {"ok": True}
+
+
+def main(argv):
+    t0 = time.time()
+    dbg = {}
+    opts = {}
+    for a in list(argv):                       # optional key=value arguments: sprites=DIR (also write the sprite atlas), accent=#rrggbb
+        if a.startswith(("sprites=", "accent=", "scale=", "hint=", "palette=", "screen=", "narrow=", "link=")):
+            k, v = a.split("=", 1)
+            opts[k] = v
+            argv.remove(a)
+    if argv and argv[0] == "--verify":
+        try:
+            if opts.get("screen"):
+                globals()["SCREEN_IMAGE"] = Image.open(opts["screen"]).convert("RGB")
+            print(json.dumps(verify(argv[1], argv[2])))
+        except Exception as e:
+            print(json.dumps({"ok": False, "why": "error: %s" % e}))
+        return
+    res = {"found": False, "rects": []}
+    try:
+        region = None
+        native = None
+        if argv and argv[0] == "--image":
+            im = Image.open(argv[1])
+            cx, cy = int(argv[2]), int(argv[3])
+            ox = oy = 0
+            outside = False
+            if opts.get("scale"):                                      # test mode: the file is a screenshot at this scale
+                native = im
+                scale = float(opts["scale"])
+                im = native.resize((max(1, int(round(native.size[0] / scale))), max(1, int(round(native.size[1] / scale)))), Image.BOX)
+        else:
+            global SCREEN_IMAGE, NARROW
+            NARROW = opts.get("narrow") == "1"
+            if opts.get("screen"):
+                SCREEN_IMAGE = Image.open(opts["screen"]).convert("RGB")
+            x, y = int(float(argv[0])), int(float(argv[1]))
+            win = tuple(int(float(v)) for v in argv[2:6]) if len(argv) >= 6 else None
+            im, ox, oy, outside, native = capture(x, y, win, whole=bool(opts.get("hint")), size=(700, 120) if opts.get("link") else None)
+            cx, cy = x - ox, y - oy
+            region = [ox, oy, im.size[0], im.size[1]]
+            dbg["mouse"] = [x, y]
+            dbg["window"] = list(win) if win else None
+        if outside:
+            res = {"found": False, "rects": [], "lineH": 0}
+            bg, fg = sample_colours(im.convert("RGB"), cx, cy)
+            dbg["reason"] = "mouse is outside the focused window"
+        else:
+            res, bg, fg = detect_link(im, cx, cy, dbg) if opts.get("link") else detect_hint(im, opts["hint"], dbg) if opts.get("hint") else detect(im, cx, cy, dbg)
+            # A long selection reaches the edge of the capture (the mouse is at its end, the rest is above/below/aside): the highlight colour is known now,
+            # so look for THAT colour in the whole focused window (cheap, see detect_hint) instead of running the full search on a bigger picture.
+            # The capture is only ~1500x260 around the mouse, so a selection that is taller/wider (several blocks with gaps, a badge beside the text) is
+            # seen in part and WHICH part depends on where the mouse is. Whatever was found, check the whole window for the same highlight colour,
+            # seeded at what was found; the result only replaces the first one if it contains it (not an unrelated block of the same colour).
+            if (not opts.get("hint") and not opts.get("link") and res.get("found") and not (argv and argv[0] == "--image") and win):
+                im2, ox2, oy2, outside2, native2 = capture(x, y, win, whole=True)
+                if True:
+                    dbg2 = {}
+                    fx0 = min(r["x"] for r in res["rects"]); fx1 = max(r["x"] + r["w"] for r in res["rects"])
+                    fy0 = min(r["y"] for r in res["rects"]); fy1 = max(r["y"] + r["h"] for r in res["rects"])
+                    res2, bg2, fg2 = detect_hint(im2, hexc(bg), dbg2, near=((fx0 + fx1) // 2 + ox - ox2, (fy0 + fy1) // 2 + oy - oy2))
+                    def _inside(r, boxes):
+                        ra = max(1, r["w"] * r["h"]); got = 0
+                        for q in boxes:
+                            iw = min(r["x"] + ox + r["w"], q["x"] + ox2 + q["w"]) - max(r["x"] + ox, q["x"] + ox2)
+                            ih = min(r["y"] + oy + r["h"], q["y"] + oy2 + q["h"]) - max(r["y"] + oy, q["y"] + oy2)
+                            if iw > 0 and ih > 0:
+                                got += iw * ih
+                        return got / float(ra)
+                    contains = res2.get("found") and sum(_inside(r, res2["rects"]) * r["w"] * r["h"] for r in res["rects"]) >= 0.6 * sum(r["w"] * r["h"] for r in res["rects"])
+                    if contains and (sum(r["w"] * r["h"] for r in res2["rects"]) > 1.01 * sum(r["w"] * r["h"] for r in res["rects"])):      # clearly more highlight (hint mode may merge lines into fewer, taller rects)
+                        # The first search split the lines around the mouse well (except the ones cut off by the edge of its capture), the hint search sees the
+                        # whole selection but may merge touching lines into one tall rect: keep the first search's inner rects, and let the hint search fill in
+                        # everything else (cut into lines of the same height).
+                        inner = [r for r in res["rects"] if not (r["y"] <= 1 or r["y"] + r["h"] >= im.size[1] - 1)]
+                        mine = [dict(r, x=r["x"] + ox - ox2, y=r["y"] + oy - oy2) for r in inner]
+                        # A line cut off by the LEFT/RIGHT edge of the first capture (a long line: the capture is only ~1500px wide) is still cut: the hint
+                        # search only fills in the gaps between these rects. Follow the exact highlight colour out to where the line really ends.
+                        clipped = [i for i, r in enumerate(inner) if r["x"] <= 1 or r["x"] + r["w"] >= im.size[0] - 1]
+                        if clipped:
+                            raw2 = color_mask(im2.convert("RGB"), bg)
+                            for i in clipped:
+                                mine[i] = extend_lines(raw2, [mine[i]])[0]
+                                measure_rect(raw2, mine[i])
+                        lh = sorted(r["h"] for r in mine)[len(mine) // 2] if mine else max(6, res.get("lineH") or 0)
+                        fill = []
+                        for r in res2["rects"]:
+                            segs = [(r["y"], r["y"] + r["h"])]
+                            for m in mine:
+                                nxt = []
+                                for a, b in segs:
+                                    if m["y"] < b and a < m["y"] + m["h"]:
+                                        if m["y"] - a > 0: nxt.append((a, m["y"]))
+                                        if b - (m["y"] + m["h"]) > 0: nxt.append((m["y"] + m["h"], b))
+                                    else:
+                                        nxt.append((a, b))
+                                segs = nxt
+                            for a, b in segs:
+                                if b - a < 0.5 * lh:
+                                    continue
+                                n = max(1, int(round((b - a) / lh)))
+                                for k in range(n):
+                                    fill.append(dict(r, y=a + (b - a) * k // n, h=(b - a) * (k + 1) // n - (b - a) * k // n))
+                        res2["rects"] = sorted(mine + fill, key=lambda r: (r["y"], r["x"]))
+                        im, ox, oy, native, res, bg, fg, dbg = im2, ox2, oy2, native2, res2, bg2, fg2, dbg2
+                        cx, cy = x - ox, y - oy
+                        region = [ox, oy, im.size[0], im.size[1]]
+                        dbg["mouse"] = [x, y]
+                        dbg["window"] = list(win)
+                        dbg["grown"] = 1
+        if res.get("found") and res.get("rects"):
+            try:
+                if opts.get("link"):
+                    raw = color_mask(im.convert("RGB"), bg)
+                    for r in res["rects"]:
+                        measure_rect(raw, r)
+                else:
+                    res["rects"] = polish_rects(color_mask(im.convert("RGB"), bg), res["rects"])
+            except Exception as e:
+                dbg["polish_error"] = str(e)
+        if res.get("found") and opts.get("sprites"):
+            try:
+                acc = opts.get("accent", "#f19d88").lstrip("#")
+                named = None
+                if opts.get("palette"):
+                    hexes = [h.lstrip("#") for h in opts["palette"].split(",")]
+                    named = [tuple(int(h[i:i + 2], 16) for i in (0, 2, 4)) for h in hexes] if len(hexes) == 8 else None
+                sp = build_sprite(im.convert("RGB"), res["rects"], bg, tuple(int(acc[i:i + 2], 16) for i in (0, 2, 4)), opts["sprites"], native, named)
+                if sp:
+                    sp["x"] += ox
+                    sp["y"] += oy
+                    res["sprite"] = sp
+            except Exception as e:
+                dbg["sprite_error"] = str(e)
+        for r in res["rects"]:
+            r["x"] += ox
+            r["y"] += oy
+        if "block" in dbg:
+            dbg["block"][0] += ox
+            dbg["block"][1] += oy
+        res["bg"], res["fg"] = hexc(bg), hexc(fg)
+        dbg["region"] = region
+        dbg["ms"] = round((time.time() - t0) * 1000)
+        res["debug"] = dbg
+    except Exception as e:                     # never break the caller
+        res = {"found": False, "rects": [], "error": str(e), "debug": {"reason": "error: %s" % e}}
+    out = json.dumps(res)
+    print(out)
+    try:                                       # keep the last 300 detections for debugging "why not found"
+        os.makedirs(os.path.dirname(LOG), exist_ok=True)
+        line = time.strftime("%H:%M:%S ") + " ".join(argv[:6]) + " -> " + out
+        old = open(LOG).read().splitlines()[-299:] if os.path.exists(LOG) else []
+        open(LOG, "w").write("\n".join(old + [line]) + "\n")
+    except Exception:
+        pass
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])

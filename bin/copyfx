@@ -1,0 +1,414 @@
+#!/usr/bin/env python3
+"""CopyFX command line: effect packs (git repos with extra effects) and the tools around them.
+
+  copyfx pack add <git-url> --rev COMMIT [--name N] [--yes]   install a pack at ONE exact commit (full 40-char id; lints it, asks unless --yes)
+  copyfx pack add <dir> [--name NAME] [--yes]            install a pack from a local folder
+  copyfx pack list                                       installed packs
+  copyfx pack update NAME --rev COMMIT [--yes]           move to another exact commit (re-lints; shows the change first)
+  copyfx pack remove NAME
+  copyfx pack lint DIR                                   check a pack directory the way the installer does (for pack authors)
+  copyfx pack new NAME                                   scaffold a new pack in ./NAME
+  copyfx materialise SRC PACKS TARGET                    (used by the shell) merge the plugin's effects + all packs into one runtime tree
+
+A pack is a git repo:   copyfx-pack.json  {"name","version","author","description","license"}
+                        effects/<id>/Effect.qml + effect.json      (same format as the built-in effects; base classes via `import "../.."`)
+                        posters/<id>.png                            (optional gallery poster)
+Pack effects run inside the shell, so packs are LINTED: only QtQuick imports, no processes, files, network or dynamic code (a safety net
+against accidents, not a security sandbox - install packs from people you trust).
+"""
+import json, os, re, shutil, subprocess, sys, time
+
+DATA = os.path.join(os.environ.get("XDG_DATA_HOME", os.path.expanduser("~/.local/share")), "omarchy-shell", "copyfx")
+PACKS = os.path.join(DATA, "packs")
+ALLOWED_EXT = {".qml", ".json", ".png", ".jpg", ".jpeg", ".webp", ".svg", ".md", ".txt"}
+MAX_FILES, MAX_BYTES = 300, 6 * 1024 * 1024
+IMPORT_OK = [re.compile(r'^import QtQuick(\.Shapes|\.Effects|\.Particles)?(\s+[\d.]+)?(\s+as\s+\w+)?$'), re.compile(r'^import "\.\./\.\."$')]
+FORBIDDEN = ["XMLHttpRequest", "WebSocket", "Qt.openUrlExternally", "Qt.createQmlObject", "Qt.createComponent", "Qt.include", "eval(", "Function(",
+             "Process", "Quickshell", "FileView", "Loader", "http://", "https://", "file://", "ftp://", "execDetached", "SocketServer", "DataStream"]
+NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,39}$")
+
+
+def die(msg, code=1):
+    print("copyfx: " + msg, file=sys.stderr)
+    sys.exit(code)
+
+
+def lint_effect(edir):
+    """-> list of problems for one effects/<id> directory."""
+    problems = []
+    qml = os.path.join(edir, "Effect.qml")
+    if not os.path.isfile(qml):
+        return ["missing Effect.qml"]
+    meta = os.path.join(edir, "effect.json")
+    try:
+        j = json.load(open(meta))
+        if not isinstance(j, dict) or not str(j.get("name", "")).strip():
+            problems.append("effect.json needs a name")
+    except Exception as e:
+        problems.append("effect.json: %s" % e)
+    total = 0
+    for root, _, files in os.walk(edir):
+        for f in files:
+            path = os.path.join(root, f)
+            total += os.path.getsize(path)
+            ext = os.path.splitext(f)[1].lower()
+            if ext not in ALLOWED_EXT:
+                problems.append("file type not allowed: %s" % os.path.relpath(path, edir))
+            if os.path.islink(path):
+                problems.append("symlinks are not allowed: %s" % f)
+            if ext == ".qml":
+                text = open(path, errors="replace").read()
+                for ln, line in enumerate(text.splitlines(), 1):
+                    st = line.strip()
+                    if st.startswith("import "):
+                        if not any(p.match(st) for p in IMPORT_OK):
+                            problems.append("%s:%d import not allowed: %s" % (f, ln, st))
+                    for bad in FORBIDDEN:                                   # (comments count too: a string like "https://..." must not hide behind "//")
+                        if bad in line:
+                            problems.append("%s:%d forbidden: %s" % (f, ln, bad))
+    if total > 2 * 1024 * 1024:
+        problems.append("effect folder is larger than 2 MB")
+    return problems
+
+
+def lint_pack(pdir):
+    """-> (manifest or None, {effect_id: [problems]}, [pack-level problems])"""
+    top = []
+    man = None
+    try:
+        man = json.load(open(os.path.join(pdir, "copyfx-pack.json")))
+        if not NAME_RE.match(str(man.get("name", ""))):
+            top.append('copyfx-pack.json: "name" must be lowercase letters, digits, - or _ (max 40)')
+    except Exception as e:
+        top.append("copyfx-pack.json: %s" % e)
+    n = size = 0
+    for root, dirs, files in os.walk(pdir):
+        dirs[:] = [d for d in dirs if d != ".git"]
+        for f in files:
+            n += 1
+            size += os.path.getsize(os.path.join(root, f))
+    if n > MAX_FILES:
+        top.append("more than %d files" % MAX_FILES)
+    if size > MAX_BYTES:
+        top.append("larger than %d MB" % (MAX_BYTES // 1024 // 1024))
+    effects = {}
+    edir = os.path.join(pdir, "effects")
+    if os.path.isdir(edir):
+        for e in sorted(os.listdir(edir)):
+            if os.path.isdir(os.path.join(edir, e)):
+                if not re.match(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,59}$", e):
+                    effects[e] = ["bad folder name"]
+                else:
+                    effects[e] = lint_effect(os.path.join(edir, e))
+    else:
+        top.append("no effects/ folder")
+    return man, effects, top
+
+
+def notify():
+    try:
+        subprocess.run(["omarchy-shell", "shell", "summon", "io.github.akton1.copy-text-effects", json.dumps({"packs": "rescan"})], capture_output=True, timeout=5)
+    except Exception:
+        pass
+
+
+def git(*args, cwd=None):
+    return subprocess.run(["git", "-c", "protocol.ext.allow=never"] + list(args), cwd=cwd, capture_output=True, text=True)
+
+
+REV_RE = re.compile(r"^[0-9a-f]{40}$")
+
+
+def get_rev(args):
+    """The exact commit to install: a full 40-character SHA, so what you read is what runs (no moving branch)."""
+    if "--rev" not in args or args.index("--rev") + 1 >= len(args):
+        die("a git pack needs the exact commit: add --rev <full 40-character commit id> (read that commit first)")
+    rev = args[args.index("--rev") + 1].lower()
+    if not REV_RE.match(rev):
+        die("--rev must be a full 40-character commit id")
+    return rev
+
+
+def fetch_pinned(url, rev, dest):
+    """Fetch exactly commit `rev` of the repo `url` into `dest` (no branch is followed). Returns an error text or ''."""
+    if url.startswith("-"):
+        return "bad url"
+    os.makedirs(dest, exist_ok=True)
+    for step in (["init", "-q"], ["fetch", "-q", "--depth", "1", "--", url, rev], ["checkout", "-q", "--detach", "FETCH_HEAD"]):
+        r = git(*step, cwd=dest)
+        if r.returncode:
+            return "git %s failed: %s" % (step[0], r.stderr.strip())
+    if git("rev-parse", "HEAD", cwd=dest).stdout.strip() != rev:
+        return "the fetched commit is not %s" % rev
+    return ""
+
+
+def report(man, effects, top):
+    ok = [e for e, p in effects.items() if not p]
+    bad = {e: p for e, p in effects.items() if p}
+    if man:
+        print("pack:    %s %s  by %s" % (man.get("name"), man.get("version", ""), man.get("author", "?")))
+        if man.get("description"):
+            print("         %s" % man["description"])
+    print("effects: %d ok%s" % (len(ok), (", %d rejected" % len(bad)) if bad else ""))
+    for e in ok:
+        print("  + %s" % e)
+    for e, p in bad.items():
+        print("  x %s" % e)
+        for q in p:
+            print("      - %s" % q)
+    for q in top:
+        print("  ! %s" % q)
+    return not top and bool(ok)
+
+
+def cmd_add(args):
+    yes = "--yes" in args
+    name = None
+    if "--name" in args:
+        name = args[args.index("--name") + 1]
+    rev = args[args.index("--rev") + 1] if "--rev" in args and args.index("--rev") + 1 < len(args) else None
+    src = [a for a in args if not a.startswith("--") and a != name and a != rev][:1]
+    if not src:
+        die("usage: copyfx pack add <git-url --rev COMMIT | dir> [--name NAME] [--yes]")
+    src = src[0]
+    tmp = os.path.join(DATA, ".pack-tmp-%d" % os.getpid())
+    shutil.rmtree(tmp, ignore_errors=True)
+    os.makedirs(DATA, exist_ok=True)
+    if os.path.isdir(src):
+        shutil.copytree(src, tmp, ignore=shutil.ignore_patterns(".git"))
+        commit = "local"
+    else:
+        commit = get_rev(args)
+        err = fetch_pinned(src, commit, tmp)
+        if err:
+            shutil.rmtree(tmp, ignore_errors=True)
+            die(err)
+        shutil.rmtree(os.path.join(tmp, ".git"), ignore_errors=True)
+    man, effects, top = lint_pack(tmp)
+    ok = report(man, effects, top)
+    if not ok:
+        shutil.rmtree(tmp, ignore_errors=True)
+        die("nothing to install (fix the problems above)")
+    pname = name or man["name"]
+    if not NAME_RE.match(pname):
+        shutil.rmtree(tmp, ignore_errors=True)
+        die("bad pack name")
+    dest = os.path.join(PACKS, pname)
+    if os.path.exists(dest):
+        shutil.rmtree(tmp, ignore_errors=True)
+        die("pack '%s' is already installed (use: copyfx pack update %s)" % (pname, pname))
+    print("\nEffects run INSIDE your shell. Only install packs you trust; read the QML first: %s" % os.path.join(tmp, "effects"))
+    if not yes and sys.stdin.isatty():
+        if input("Install '%s'? [y/N] " % pname).strip().lower() != "y":
+            shutil.rmtree(tmp, ignore_errors=True)
+            die("cancelled", 2)
+    elif not yes:
+        shutil.rmtree(tmp, ignore_errors=True)
+        die("not a terminal: pass --yes to install without asking", 2)
+    os.makedirs(PACKS, exist_ok=True)
+    shutil.move(tmp, dest)
+    json.dump({"source": src, "commit": commit, "added": int(time.time())}, open(os.path.join(dest, ".copyfx-source.json"), "w"))
+    print("installed '%s'" % pname)
+    notify()
+
+
+def installed():
+    out = []
+    if os.path.isdir(PACKS):
+        for n in sorted(os.listdir(PACKS)):
+            d = os.path.join(PACKS, n)
+            if os.path.isdir(d):
+                try:
+                    man = json.load(open(os.path.join(d, "copyfx-pack.json")))
+                except Exception:
+                    man = {}
+                try:
+                    srcj = json.load(open(os.path.join(d, ".copyfx-source.json")))
+                except Exception:
+                    srcj = {}
+                n_eff = len([e for e in os.listdir(os.path.join(d, "effects"))]) if os.path.isdir(os.path.join(d, "effects")) else 0
+                out.append((n, man, srcj, n_eff))
+    return out
+
+
+def cmd_list(_):
+    rows = installed()
+    if not rows:
+        print("no packs installed (copyfx pack add <git-url>)")
+    for n, man, srcj, ne in rows:
+        print("%-24s %-8s %2d effects  %s  %s" % (n, man.get("version", ""), ne, (srcj.get("commit") or "")[:8], srcj.get("source", "")))
+
+
+def cmd_remove(args):
+    if not args:
+        die("usage: copyfx pack remove NAME")
+    d = os.path.join(PACKS, args[0])
+    if not os.path.isdir(d):
+        die("no such pack: " + args[0])
+    shutil.rmtree(d)
+    print("removed '%s'" % args[0])
+    notify()
+
+
+def cmd_update(args):
+    yes = "--yes" in args
+    rev = args[args.index("--rev") + 1] if "--rev" in args and args.index("--rev") + 1 < len(args) else None
+    names = [a for a in args if not a.startswith("--") and a != rev][:1]
+    if not names:
+        die("usage: copyfx pack update NAME --rev <full 40-character commit id> [--yes]")
+    for n in names:
+        d = os.path.join(PACKS, n)
+        try:
+            srcj = json.load(open(os.path.join(d, ".copyfx-source.json")))
+        except Exception:
+            print("%s: no source recorded, skipped" % n)
+            continue
+        src = srcj.get("source", "")
+        if os.path.isdir(src):
+            print("%s: local pack, re-run `copyfx pack remove %s` + add to refresh" % (n, n))
+            continue
+        tmp = os.path.join(DATA, ".pack-upd-%d" % os.getpid())
+        shutil.rmtree(tmp, ignore_errors=True)
+        commit = get_rev(args)
+        err = fetch_pinned(src, commit, tmp)
+        if err:
+            shutil.rmtree(tmp, ignore_errors=True)
+            print("%s: %s" % (n, err))
+            continue
+        if commit == srcj.get("commit"):
+            print("%s: up to date" % n)
+            shutil.rmtree(tmp, ignore_errors=True)
+            continue
+        man, effects, top = lint_pack(tmp)
+        print("== %s: %s -> %s" % (n, (srcj.get("commit") or "")[:8], commit[:8]))
+        okk = report(man, effects, top)
+        shutil.rmtree(os.path.join(tmp, ".git"), ignore_errors=True)
+        subprocess.run(["diff", "-rq", d, tmp], text=True)
+        if not okk:
+            shutil.rmtree(tmp, ignore_errors=True)
+            print("%s: NOT updated (problems above)" % n)
+            continue
+        if not yes and sys.stdin.isatty() and input("Apply this update? [y/N] ").strip().lower() != "y":
+            shutil.rmtree(tmp, ignore_errors=True)
+            continue
+        if not yes and not sys.stdin.isatty():
+            shutil.rmtree(tmp, ignore_errors=True)
+            print("%s: not a terminal, pass --yes" % n)
+            continue
+        shutil.rmtree(d)
+        shutil.move(tmp, d)
+        json.dump({"source": src, "commit": commit, "added": int(time.time())}, open(os.path.join(d, ".copyfx-source.json"), "w"))
+        print("%s: updated" % n)
+    notify()
+
+
+def cmd_lint(args):
+    if not args:
+        die("usage: copyfx pack lint DIR")
+    man, effects, top = lint_pack(args[0])
+    sys.exit(0 if report(man, effects, top) else 1)
+
+
+NEW_QML = '''import QtQuick
+import "../.."
+
+// {desc}
+// Base class SpriteText: the copied text as a picture, cut into pieces ("units"). Set any of dxFn / dyFn / rotFn / scaleFn / alphaFn / tintFn
+// (each gets the unit u = {{i, line, word, x, y, w, h, cx, cy}}); read fx.t (ms, 0..fx.total), fx.n, fx.lh, fx.tg (text box), fx.theme.*.
+SpriteText {{
+  id: fx
+  total: 1200
+  readonly property real env: Math.sin(Math.PI * Math.min(1, fx.t / fx.total))
+  dyFn: function(u) {{ return -Math.sin(fx.t / 120 + u.i * 0.6) * fx.lh * 0.3 * fx.env }}
+  scaleFn: function() {{ return 1 + 0.15 * fx.env }}
+  tintFn: function() {{ return fx.env > 0.05 ? 13 : 0 }}          // 0 = real colours, 1..12 rainbow, 13 accent, 14 white ...
+
+  Rectangle {{                                                   // anything you draw is in screen coordinates
+    x: fx.tg.x - 6; y: fx.tg.y + fx.tg.h + 4; width: fx.tg.w * fx.env + 12; height: 3
+    color: fx.theme.accent; opacity: fx.hlAlpha
+  }}
+}}
+'''
+
+
+def cmd_new(args):
+    if not args or not NAME_RE.match(args[0]):
+        die("usage: copyfx pack new NAME   (lowercase letters, digits, - _)")
+    n = args[0]
+    if os.path.exists(n):
+        die("%s already exists" % n)
+    os.makedirs(os.path.join(n, "effects", "hello"))
+    json.dump({"name": n, "version": "0.1.0", "author": os.environ.get("USER", ""), "description": "My CopyFX effects", "license": "MIT"}, open(os.path.join(n, "copyfx-pack.json"), "w"), indent=2)
+    open(os.path.join(n, "effects", "hello", "Effect.qml"), "w").write(NEW_QML.format(desc="Hello: the letters bob in a wave and an accent line grows under them."))
+    json.dump({"name": "Hello", "description": "The letters bob in a wave and an accent line grows under them.", "size": "IMG", "tags": ["playful", "example"], "selection": True, "maxChars": 400, "posterMs": 90},
+              open(os.path.join(n, "effects", "hello", "effect.json"), "w"), indent=2)
+    open(os.path.join(n, "README.md"), "w").write("# %s\n\nA CopyFX effect pack. Install: `copyfx pack add <this repo's git url> --rev <full commit id>`\n\nCheck it: `copyfx pack lint .`   Try it locally: `copyfx pack add . --yes`\n" % n)
+    print("created %s/ - edit effects/hello, then: copyfx pack lint %s && copyfx pack add %s --yes" % (n, n, n))
+
+
+def cmd_materialise(args):
+    """SRC PACKS TARGET [--always]: one tree = the plugin's own files + every pack's (linted) effects as <pack>.<id>. Without packs nothing is
+    built unless --always (the dev reload wants a fresh copy of the plugin either way)."""
+    always = "--always" in args
+    args = [a for a in args if a != "--always"]
+    if len(args) != 3:
+        die("usage: copyfx materialise SRC PACKS TARGET [--always]")
+    src, packs, target = args
+    names = [n for n in sorted(os.listdir(packs)) if os.path.isdir(os.path.join(packs, n))] if os.path.isdir(packs) else []
+    if not names and not always:
+        print(json.dumps({"built": False, "packs": 0, "effects": 0, "skipped": []}))
+        return
+    shutil.rmtree(target, ignore_errors=True)
+    os.makedirs(target)
+    for item in os.listdir(src):
+        p = os.path.join(src, item)
+        if item.endswith((".qml", ".js", ".json")) or item in ("effects", "posters"):
+            (shutil.copytree if os.path.isdir(p) else shutil.copy2)(p, os.path.join(target, item))
+    added, skipped = 0, []
+    os.makedirs(os.path.join(target, "effects"), exist_ok=True)
+    os.makedirs(os.path.join(target, "posters"), exist_ok=True)
+    for pn in names:
+        pdir = os.path.join(packs, pn)
+        man, effects, top = lint_pack(pdir)
+        if top:
+            skipped.append({"pack": pn, "problems": top})
+            continue
+        for e, problems in effects.items():
+            if problems:
+                skipped.append({"pack": pn, "effect": e, "problems": problems})
+                continue
+            eid = "%s.%s" % (pn, e)
+            dst = os.path.join(target, "effects", eid)
+            shutil.copytree(os.path.join(pdir, "effects", e), dst)
+            j = json.load(open(os.path.join(dst, "effect.json")))
+            j["tags"] = sorted(set([str(t) for t in j.get("tags", [])] + ["pack:" + pn]))
+            j["pack"] = pn
+            j.setdefault("size", "IMG")
+            json.dump(j, open(os.path.join(dst, "effect.json"), "w"))
+            poster = os.path.join(pdir, "posters", e + ".png")
+            if os.path.isfile(poster):
+                shutil.copy2(poster, os.path.join(target, "posters", eid + ".png"))
+            added += 1
+    parent = os.path.dirname(target)                               # keep the newest few trees (the shell may still hold the previous one)
+    olds = sorted([os.path.join(parent, d) for d in os.listdir(parent) if d.startswith("v")], key=os.path.getmtime, reverse=True)
+    for d in olds[4:]:
+        shutil.rmtree(d, ignore_errors=True)
+    print(json.dumps({"built": True, "packs": len(names), "effects": added, "skipped": skipped}))
+
+
+def main(argv):
+    if len(argv) >= 1 and argv[0] == "materialise":
+        return cmd_materialise(argv[1:])
+    if len(argv) < 2 or argv[0] != "pack":
+        print(__doc__)
+        return
+    cmds = {"add": cmd_add, "list": cmd_list, "ls": cmd_list, "remove": cmd_remove, "rm": cmd_remove, "update": cmd_update, "lint": cmd_lint, "new": cmd_new}
+    if argv[1] not in cmds:
+        print(__doc__)
+        return
+    cmds[argv[1]](argv[2:])
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])

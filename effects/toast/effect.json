@@ -1,0 +1,1 @@
+{"name": "Toast", "description": "A plain notification card: coloured level bar, icon, optional title and text. The default for notifyfx.", "anchor": "cursor", "duration": 3000, "posterMs": 500, "size": "S", "tags": ["clean", "notification"]}

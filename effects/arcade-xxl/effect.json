@@ -1,0 +1,1 @@
+{"name": "Arcade XXL", "description": "An arcade attract screen: 1UP, HIGH SCORE (100 points per character), rainbow letters, chasing marquee bulbs and a blinking INSERT COIN.", "anchor": "cursor", "duration": 3200, "maxChars": 100, "xxl": true, "posterMs": 500, "size": "XL", "tags": ["retro", "arcade"]}
