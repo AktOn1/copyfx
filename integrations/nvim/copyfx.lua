@@ -13,7 +13,7 @@ function M.setup(opts)
     group = "Visual",                  -- highlight group used to mark the yanked text (must have a background colour)
     timeout = 400,                     -- ms the marker stays (the effect repaints it exactly, so it is not noticed)
     operators = { y = true },          -- which operators trigger it (add d = true / c = true to also react to deletes)
-    command = { "omarchy-shell", "shell", "summon", "io.github.akton1.copy-text-effects" },
+    command = { "omarchy-shell", "shell", "summon", "io.github.akton1.copyfx" },
   }, opts or {})
   local ns = vim.api.nvim_create_namespace("copyfx_yank")
 

@@ -12,7 +12,7 @@ Text can be given with --text/-t, as plain words, or as '-' to read stdin. The f
 import argparse, json, os, re, subprocess, sys
 
 PLUGIN = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
-PLUGIN_ID = "io.github.akton1.copy-text-effects"          # rename together with the plugin id
+PLUGIN_ID = "io.github.akton1.copyfx"          # rename together with the plugin id
 POSITIONS = ["topleft", "top", "topright", "left", "center", "right", "bottomleft", "bottom", "bottomright", "cursor"]
 LEVELS = ["info", "success", "warn", "error"]
 

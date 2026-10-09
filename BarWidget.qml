@@ -11,9 +11,9 @@ import "logic.js" as Logic
 // ({"set": ...}); this file only reads config.json and the effect list the overlay writes, and writes the favourites file.
 BarWidget {
   id: root
-  moduleName: "io.github.akton1.copy-text-effects"
+  moduleName: "io.github.akton1.copyfx"
 
-  readonly property string pluginId: "io.github.akton1.copy-text-effects"
+  readonly property string pluginId: "io.github.akton1.copyfx"
   readonly property string dataHome: Quickshell.env("XDG_DATA_HOME") || (Quickshell.env("HOME") + "/.local/share")
   readonly property string dataDir: dataHome + "/omarchy-shell/copyfx"
   readonly property string runDir: Quickshell.env("XDG_RUNTIME_DIR") || (dataDir + "/run")
@@ -160,7 +160,7 @@ BarWidget {
   }
 
   IpcHandler {
-    target: "io.github.akton1.copy-text-effects.menu"
+    target: "io.github.akton1.copyfx.menu"
     function toggle(): void { root.toggle() }
     function open(): void { root.open() }
     function close(): void { root.close() }
@@ -179,7 +179,7 @@ BarWidget {
     anchors.fill: parent
     bar: root.bar
     active: root.config.enabled
-    tooltipText: "Copy Text Effects (experimental)\n" + (root.config.enabled ? "on" : "off")
+    tooltipText: "CopyFX (experimental)\n" + (root.config.enabled ? "on" : "off")
                  + " · effect: " + (root.current ? root.current.name : root.config.effect)
                  + (root.config.mode === "random" ? " · random on every copy" : "")
                  + "\nclick: menu · right-click: on/off · middle-click: surprise me · scroll: step through the effects"

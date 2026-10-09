@@ -9,8 +9,8 @@ import "logic.js" as Logic
 
 // CopyFX: plays an animated effect built from the copied text on every copy.
 // Effects live in effects/<id>/ (effect.json + Effect.qml on top of EffectBase.qml).
-// Overlay plugin: `omarchy-shell shell toggle io.github.akton1.copy-text-effects` opens the effect gallery;
-// `... toggle io.github.akton1.copy-text-effects '{"test":"Hello","effect":"jump"}'` plays an effect directly.
+// Overlay plugin: `omarchy-shell shell toggle io.github.akton1.copyfx` opens the effect gallery;
+// `... toggle io.github.akton1.copyfx '{"test":"Hello","effect":"jump"}'` plays an effect directly.
 Item {
   id: root
 

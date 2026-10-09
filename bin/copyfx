@@ -107,7 +107,7 @@ def lint_pack(pdir):
 
 def notify():
     try:
-        subprocess.run(["omarchy-shell", "shell", "summon", "io.github.akton1.copy-text-effects", json.dumps({"packs": "rescan"})], capture_output=True, timeout=5)
+        subprocess.run(["omarchy-shell", "shell", "summon", "io.github.akton1.copyfx", json.dumps({"packs": "rescan"})], capture_output=True, timeout=5)
     except Exception:
         pass
 

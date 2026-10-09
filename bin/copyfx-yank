@@ -7,4 +7,4 @@ dir=${XDG_RUNTIME_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/omarchy-shell/copyfx
 umask 077
 mkdir -p "$dir"
 head -c 100000 > "$dir/copyfx-yank.txt.new" && mv -f "$dir/copyfx-yank.txt.new" "$dir/copyfx-yank.txt"
-omarchy-shell shell summon io.github.akton1.copy-text-effects "$(jq -cn --arg hl "$hl" '{yank: {hl: $hl, file: true}}')"
+omarchy-shell shell summon io.github.akton1.copyfx "$(jq -cn --arg hl "$hl" '{yank: {hl: $hl, file: true}}')"

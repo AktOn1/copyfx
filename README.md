@@ -1,4 +1,4 @@
-# Copy Text Effects
+# CopyFX
 
 <a href='https://ko-fi.com/akton1' target='_blank'><img height='36' style='border:0px;height:36px;' src='https://storage.ko-fi.com/cdn/kofi3.png?v=6' border='0' alt='Buy Me a Coffee at ko-fi.com' /></a>
 
@@ -11,7 +11,7 @@ An animation on the text you just copied, for the [Omarchy](https://omarchy.org/
 ## Install
 
 ```
-omarchy plugin add https://github.com/AktOn1/copy-text-effects.git --enable
+omarchy plugin add https://github.com/AktOn1/copyfx.git --enable
 ```
 
 Then restart the shell once (`omarchy-restart-shell`) so the overlay loads.
@@ -29,7 +29,7 @@ omarchy pkg add grim python-pillow python-numpy
 
 ## First run
 
-1. Open the gallery: `omarchy-shell shell toggle io.github.akton1.copy-text-effects`
+1. Open the gallery: `omarchy-shell shell toggle io.github.akton1.copyfx`
 2. Click an effect (or move with the arrow keys and press Enter). It plays on the spot and stays selected.
 3. Select some text anywhere and copy it.
 
@@ -37,9 +37,9 @@ The gallery does not dim the screen and clicks outside it pass through, so you c
 
 ## Bar icon and menu
 
-The plugin also adds a bar icon (a copy symbol with a sparkle). Add "Copy Text Effects" to your bar in the Omarchy shell settings; it is under Appearance. Click it to open the menu: groups on the left (Favorites, All, then tag groups such as Playful, Retro or Nature), effects on the right, and On, Random, Surprise me and Gallery at the top.
+The plugin also adds a bar icon (a copy symbol with a sparkle). Add "CopyFX" to your bar in the Omarchy shell settings; it is under Appearance. Click it to open the menu: groups on the left (Favorites, All, then tag groups such as Playful, Retro or Nature), effects on the right, and On, Random, Surprise me and Gallery at the top.
 
-Hover or move over an effect to preview it, click or press Enter to keep it. Keys: `hjkl` or arrows move, Enter keeps the effect and closes, Space previews, Tab jumps between groups, `f` toggles a favorite, `r` surprise me, `m` random mode, `e` on/off, `v` gallery, Esc closes. Favorites are saved in the plugin's own data folder. The menu can also be opened from a key: `omarchy-shell io.github.akton1.copy-text-effects.menu toggle`.
+Hover or move over an effect to preview it, click or press Enter to keep it. Keys: `hjkl` or arrows move, Enter keeps the effect and closes, Space previews, Tab jumps between groups, `f` toggles a favorite, `r` surprise me, `m` random mode, `e` on/off, `v` gallery, Esc closes. Favorites are saved in the plugin's own data folder. The menu can also be opened from a key: `omarchy-shell io.github.akton1.copyfx.menu toggle`.
 
 The menu code is a small self-contained component (`SectionMenu.qml` and `MenuRow.qml`, copied into the plugin) that other plugins can copy and reuse (MIT licensed).
 
@@ -50,22 +50,22 @@ The menu code is a small self-contained component (`SectionMenu.qml` and `MenuRo
 A key for the gallery in `~/.config/hypr/bindings.lua`:
 
 ```lua
-hl.bind("SHIFT + ALT + G", hl.dsp.exec_cmd("omarchy-shell shell toggle io.github.akton1.copy-text-effects"),
-  { description = "Copy Text Effects gallery" })
+hl.bind("SHIFT + ALT + G", hl.dsp.exec_cmd("omarchy-shell shell toggle io.github.akton1.copyfx"),
+  { description = "CopyFX gallery" })
 ```
 
 **Try an effect from a script.**
 
 ```
-omarchy-shell shell summon io.github.akton1.copy-text-effects '{"test":"Hello","effect":"img-bloom"}'
+omarchy-shell shell summon io.github.akton1.copyfx '{"test":"Hello","effect":"img-bloom"}'
 ```
 
 **Copy-on-select apps and the Ctrl+C key.** Apps that copy as soon as you select (terminals) can be listed in `keyOnlyClasses` in the config. They then only get an effect when a copy key was pressed, which needs this non-consuming bind (the keys still reach the app):
 
 ```lua
 for _, k in ipairs({ "CTRL + C", "CTRL + X", "CTRL + INSERT", "CTRL + SHIFT + C", "SUPER + C", "SUPER + X" }) do
-  hl.bind(k, hl.dsp.exec_cmd([[omarchy-shell shell summon io.github.akton1.copy-text-effects '{"copyKey":true}']]),
-    { description = "Copy Text Effects copy-key signal", non_consuming = true })
+  hl.bind(k, hl.dsp.exec_cmd([[omarchy-shell shell summon io.github.akton1.copyfx '{"copyKey":true}']]),
+    { description = "CopyFX copy-key signal", non_consuming = true })
 end
 ```
 
@@ -74,8 +74,8 @@ The window class of an app shows up in the log as `copyfx copy from class: ...` 
 **"Copy link address".** A link has no highlight, so the effect needs to know where you clicked. This optional bind passes the right-click position:
 
 ```lua
-hl.bind("mouse:273", hl.dsp.exec_cmd([[omarchy-shell shell summon io.github.akton1.copy-text-effects '{"rightClick":true}']]),
-  { description = "Copy Text Effects right-click position", non_consuming = true, dont_inhibit = true })
+hl.bind("mouse:273", hl.dsp.exec_cmd([[omarchy-shell shell summon io.github.akton1.copyfx '{"rightClick":true}']]),
+  { description = "CopyFX right-click position", non_consuming = true, dont_inhibit = true })
 ```
 
 **Neovim and tmux.** Yanks in an editor have no mouse selection, so the program tells the plugin the colour of the highlight it just drew and the effect lands on it.
@@ -129,14 +129,14 @@ What the plugin does on your machine, so you can decide whether to run it:
 ## Update
 
 ```
-omarchy plugin update io.github.akton1.copy-text-effects
+omarchy plugin update io.github.akton1.copyfx
 omarchy-restart-shell
 ```
 
 ## Remove
 
 ```
-omarchy plugin remove io.github.akton1.copy-text-effects
+omarchy plugin remove io.github.akton1.copyfx
 rm -rf ~/.local/share/omarchy-shell/copyfx
 ```
 

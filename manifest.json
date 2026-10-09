@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "id": "io.github.akton1.copy-text-effects",
-  "name": "Copy Text Effects",
+  "id": "io.github.akton1.copyfx",
+  "name": "CopyFX",
   "version": "0.1.0",
   "author": "AktOn1",
   "license": "MIT",
@@ -16,7 +16,7 @@
     "barWidget": "BarWidget.qml"
   },
   "barWidget": {
-    "displayName": "Copy Text Effects",
+    "displayName": "CopyFX",
     "description": "Experimental. Menu for the copy effects: pick an effect, preview it, favorites, surprise me, on/off.",
     "category": "Appearance",
     "allowMultiple": false,
