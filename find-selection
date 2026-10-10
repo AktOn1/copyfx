@@ -960,6 +960,80 @@ def verify(hex_colour, rect_str):
     return {"ok": True}
 
 
+def font_file(family):
+    """Font file for a family name (fontconfig); falls back to the default sans."""
+    for fam in (family, "sans-serif"):
+        try:
+            f = subprocess.run(["fc-match", "-f", "%{file}", fam or "sans-serif"], capture_output=True, text=True, timeout=3).stdout.strip()
+            if f and os.path.exists(f):
+                return f
+        except Exception:
+            pass
+    return None
+
+
+def render_card(req, opts):
+    """A made-up selection: the text typeset on a flat card, as if it were highlighted on screen. Everything after this (rects with
+    ink insets and word gaps, the sprite atlas) is the same code that handles a real screenshot, so every on-text and by-image effect
+    can play on it anywhere on the screen. req: {text, family, px, fg, bg, maxw, maxLines}. Coordinates are relative to the card."""
+    from PIL import ImageFont
+    px = max(8, int(round(float(req.get("px", 24)))))
+    fg = tuple(int(str(req.get("fg", "#e6e6e6")).lstrip("#")[i:i + 2], 16) for i in (0, 2, 4))
+    bg = tuple(int(str(req.get("bg", "#2a2d33")).lstrip("#")[i:i + 2], 16) for i in (0, 2, 4))
+    maxw = max(2 * px, int(float(req.get("maxw", 640))))
+    max_lines = max(1, int(req.get("maxLines", 6)))
+    text = " ".join(str(req.get("text", "")).split())
+    ff = font_file(req.get("family", ""))
+    font = ImageFont.truetype(ff, px) if ff else ImageFont.load_default()
+    padx = int(round(px * 0.6))
+    avail = maxw - 2 * padx
+    width = lambda t: font.getlength(t)
+    lines, cur = [], ""
+    for word in text.split(" "):
+        while width(word) > avail and len(word) > 1:          # a word longer than a line is broken
+            k = len(word)
+            while k > 1 and width(word[:k]) > avail:
+                k -= 1
+            if cur:
+                lines.append(cur); cur = ""
+            lines.append(word[:k]); word = word[k:]
+        trial = (cur + " " + word).strip()
+        if cur and width(trial) > avail:
+            lines.append(cur); cur = word
+        else:
+            cur = trial
+    if cur:
+        lines.append(cur)
+    if len(lines) > max_lines:
+        lines = lines[:max_lines]
+        while len(lines[-1]) > 1 and width(lines[-1] + "\u2026") > avail:
+            lines[-1] = lines[-1][:-1].rstrip()
+        lines[-1] += "\u2026"
+    lines = lines or [""]
+    lh = int(round(px * 1.5))
+    W = int(round(max(width(t) for t in lines))) + 2 * padx
+    H = lh * len(lines)
+    im = Image.new("RGB", (W, H), bg)
+    d = ImageDraw.Draw(im)
+    for i, t in enumerate(lines):
+        d.text((padx, i * lh + lh // 2), t, font=font, fill=fg, anchor="lm")
+    rects = [{"x": 0, "y": i * lh, "w": W, "h": lh} for i in range(len(lines))]
+    rects[-1]["w"] = int(round(width(lines[-1]))) + 2 * padx          # like a real selection, the last line ends where the text ends
+    d.rectangle((rects[-1]["w"], rects[-1]["y"], W, H), fill=bg)
+    raw = color_mask(im, bg)
+    for r in rects:
+        measure_rect(raw, r)
+    res = {"found": True, "rects": rects, "bg": hexc(bg), "fg": hexc(fg), "lineH": lh, "w": W, "h": H, "card": True}
+    if opts.get("sprites"):
+        acc = opts.get("accent", "#f19d88").lstrip("#")
+        named = None
+        if opts.get("palette"):
+            hexes = [h.lstrip("#") for h in opts["palette"].split(",")]
+            named = [tuple(int(h[i:i + 2], 16) for i in (0, 2, 4)) for h in hexes] if len(hexes) == 8 else None
+        res["sprite"] = build_sprite(im, rects, bg, tuple(int(acc[i:i + 2], 16) for i in (0, 2, 4)), opts["sprites"], None, named)
+    return res
+
+
 def main(argv):
     t0 = time.time()
     dbg = {}
@@ -969,6 +1043,12 @@ def main(argv):
             k, v = a.split("=", 1)
             opts[k] = v
             argv.remove(a)
+    if argv and argv[0] == "--card":                  # --card: typeset the text in $COPYFX_CARD (JSON; an env var so the copied text never shows on a command line) as a card, see render_card
+        try:
+            print(json.dumps(render_card(json.loads(os.environ["COPYFX_CARD"]), opts)))
+        except Exception as e:
+            print(json.dumps({"found": False, "rects": [], "error": str(e)}))
+        return
     if argv and argv[0] == "--verify":
         try:
             if opts.get("screen"):

@@ -34,15 +34,15 @@ Rectangle {
   readonly property url source: card.base + "effects/" + card.resolved + "/Effect.qml"
 
   function load() {
-    // "On text" effects need a selection to play on: fake one on the stage (a highlighted line in the middle).
-    var onText = card.effect.size === "M", byImage = card.effect.size === "IMG"
+    // By-image effects need a selection to play on: the stage gets a sample cut-out of a highlighted line.
+    var byImage = card.effect.size === "IMG"
     var props = {
-      text: onText || byImage ? "Copied to clipboard" : card.sampleText, fg: card.fg, bg: card.bg, accent: card.accent,
+      text: byImage ? "Copied to clipboard" : card.sampleText, fg: card.fg, bg: card.bg, accent: card.accent,
       fontFamily: card.fontFamily, fontSize: 15, compact: true,
-      selFound: onText || byImage,
-      selRects: byImage ? Sample.rects : onText ? [{ x: 32, y: 56, w: 200, h: 18, il: 2, ir: 2, it: 3, ib: 3, gaps: [] }] : [],
+      selFound: byImage,
+      selRects: byImage ? Sample.rects : [],
       sprite: byImage ? Sample.sprite : null,
-      srcBg: onText || byImage ? "#3465a4" : card.bg, srcFg: onText || byImage ? "#ffffff" : card.fg, srcMono: onText
+      srcBg: byImage ? "#3465a4" : card.bg, srcFg: byImage ? "#ffffff" : card.fg
     }
     if (card.theme) props.theme = card.theme
     loader.setSource(card.source, props)

@@ -1,1 +1,1 @@
-{"name": "Confetti (image)", "description": "The real text stays and a burst of confetti shoots out of it.", "anchor": "cursor", "duration": 1500, "maxChars": 0, "selection": true, "size": "IMG", "tags": ["by-image", "party", "playful"], "posterMs": 90}
+{"name": "Confetti", "description": "The real text stays and a burst of confetti shoots out of it.", "anchor": "cursor", "duration": 1500, "maxChars": 0, "selection": true, "size": "IMG", "tags": ["by-image", "party", "playful"], "posterMs": 90}

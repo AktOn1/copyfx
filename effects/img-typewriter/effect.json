@@ -1,1 +1,1 @@
-{"name": "Typewriter (image)", "description": "The real letters are typed out one by one with a blinking caret.", "anchor": "cursor", "duration": 1500, "maxChars": 0, "selection": true, "size": "IMG", "tags": ["by-image", "retro", "text"], "posterMs": 150}
+{"name": "Typewriter", "description": "The real letters are typed out one by one with a blinking caret.", "anchor": "cursor", "duration": 1500, "maxChars": 0, "selection": true, "size": "IMG", "tags": ["by-image", "retro", "text"], "posterMs": 150}

@@ -1,0 +1,1 @@
+{"name": "Terminal Window", "description": "A hacker terminal window: echo ... | wl-copy, [ OK ] N bytes, progress bar, a sha256 of your text.", "anchor": "cursor", "duration": 3000, "maxChars": 240, "scene": true, "posterMs": 500, "size": "XL", "tags": ["hacker", "dev"]}

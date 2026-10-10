@@ -1,0 +1,1 @@
+{"name": "Retro Basic Screen", "description": "An 8-bit home computer screen: READY. / 10 PRINT \"your text\" / RUN. Light blue on blue, blinking cursor.", "anchor": "cursor", "duration": 3000, "maxChars": 160, "scene": true, "posterMs": 450, "size": "XL", "tags": ["retro", "computer"]}

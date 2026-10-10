@@ -1,1 +1,0 @@
-{"name": "Hexdump XXL", "description": "An xxd dump of your text: offsets, hex bytes and ASCII, with a highlight sweeping through the bytes.", "anchor": "cursor", "duration": 3200, "maxChars": 160, "xxl": true, "posterMs": 600, "size": "XL", "tags": ["hacker", "dev"]}

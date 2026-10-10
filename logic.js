@@ -28,8 +28,8 @@ function parseEffects(raw) {
         sample: e.sample === true,                                                // needs source colours
         selection: e.selection === true,                                          // needs the selection's screen rects
         debug: e.debug === true,                                                  // dev tool: never picked in random mode
-        xxl: e.xxl === true || String(e.size) === "XL",                        // big showpiece: not picked in random mode
-        size: ["S", "M", "IMG", "L", "XL"].indexOf(String(e.size)) >= 0 ? String(e.size) : (e.xxl ? "XL" : "S"),
+        scene: e.scene === true || String(e.size) === "XL",                        // a self-contained scene (own look, ignores placement): not picked in random mode
+        size: ["S", "IMG", "XL"].indexOf(String(e.size)) >= 0 ? String(e.size) : (e.scene ? "XL" : "S"),
         tags: Array.isArray(e.tags) ? e.tags.map(String) : []
       })
     } catch (err) {}
@@ -43,7 +43,7 @@ function pickEffect(effects, mode, selected, last, rnd) {
   if (!effects.length) return ""
   var ids = effects.map(function(e) { return e.id })
   if (mode === "random") {
-    var real = effects.filter(function(e) { return !e.debug && !e.xxl }).map(function(e) { return e.id })
+    var real = effects.filter(function(e) { return !e.debug && !e.scene }).map(function(e) { return e.id })
     if (real.length) ids = real
     var pool = ids.length > 1 ? ids.filter(function(id) { return id !== last }) : ids
     return pool[Math.floor((rnd === undefined ? Math.random() : rnd) * pool.length) % pool.length]
@@ -68,8 +68,45 @@ function isMonoClass(cls) {
   return /(terminal|ghostty|alacritty|kitty|foot|wezterm|konsole|xterm|tilix|agent|nvim|vim|code|zed)/i.test(String(cls || ""))
 }
 
+// Where an effect plays: on the copied text (default), or on a text card at the cursor / a screen position. The card is a made-up
+// selection (find-selection --card), so every on-text and by-image effect works there; `scale` (percent) is the card's size.
+var PLACEMENTS = ["text", "cursor", "topleft", "top", "topright", "left", "center", "right", "bottomleft", "bottom", "bottomright"]
+var PLACEMENT_LABELS = { text: "On text", cursor: "At cursor", topleft: "Top left", top: "Top", topright: "Top right", left: "Left", center: "Center", right: "Right", bottomleft: "Bottom left", bottom: "Bottom", bottomright: "Bottom right" }
+function nextPlacement(cur, dir) { var i = PLACEMENTS.indexOf(cur); if (i < 0) i = 0; return PLACEMENTS[(i + (dir < 0 ? -1 : 1) + PLACEMENTS.length) % PLACEMENTS.length] }
+function clampScale(v) { return Math.max(25, Math.min(400, Math.round(Number(v) || 100))) }
+// Top-left corner of a cw x ch card on a sw x sh screen (same edges as EffectBase.boxX/boxY: 24 px, 46 px under the bar).
+function cardPlace(name, cw, ch, sw, sh, mx, my) {
+  var edge = 24, gap = 46, x, y
+  var clampX = function(v) { return Math.round(Math.max(8, Math.min(v, sw - cw - 8))) }
+  var clampY = function(v) { return Math.round(Math.max(8, Math.min(v, sh - ch - 8))) }
+  if (name === "left" || name === "topleft" || name === "bottomleft") x = edge
+  else if (name === "right" || name === "topright" || name === "bottomright") x = sw - cw - edge
+  else if (name === "top" || name === "bottom" || name === "center") x = (sw - cw) / 2
+  if (name === "top" || name === "topleft" || name === "topright") y = gap
+  else if (name === "bottom" || name === "bottomleft" || name === "bottomright") y = sh - ch - edge
+  else if (name === "left" || name === "right" || name === "center") y = (sh - ch) / 2
+  if (x === undefined) { var right = mx + 18; x = right + cw <= sw - 8 ? right : mx - 18 - cw }     // next to the mouse: on its right, else its left
+  if (y === undefined) y = my - ch / 2
+  return { x: clampX(x), y: clampY(y) }
+}
+
+// Effect ids that were renamed or merged away (the "<name>-xxl"/"-extra" scenes, the retyped on-text twins of the by-image effects): saved choices keep working.
+var SCENE_IDS = { arcade: "arcade-screen", "block-drop": "block-drop-playfield", chomper: "chomper-maze", fleet: "fleet-invasion", glitch: "glitch-slices",
+  "glyph-decode": "glyph-decode-rain", hexdump: "hexdump-table", hologram: "hologram-projector", led: "led-scoreboard", "neon-trails": "neon-trails-race",
+  "retro-basic": "retro-basic-screen", synthwave: "synthwave-sunset", terminal: "terminal-window" }
+var MERGED_IDS = { bleed: "img-shatter", "bleed-still": "img-still", "text-still": "img-still", "cascade-extra": "img-cascade", flash: "img-flash", "flash-all": "img-flash",
+  "flash-blink": "img-flash", "img-flash-blink": "img-flash", "flash-rainbow": "img-rainbow", "flash-run": "img-flash-run" }
+var TEXT_TWINS = ["bubbles", "cascade", "confetti", "echo", "fireworks", "frame", "jump", "neon", "ripple", "shimmer", "sparkle", "stamp", "typewriter", "wave",
+  "arcade", "block-drop", "chomper", "fleet", "glitch", "glyph-decode", "hexdump", "hologram", "led", "neon-trails", "retro-basic", "synthwave", "terminal"]
+function renamedId(id) {
+  var s = String(id), m = /^(.*)-(xxl|extra)$/.exec(s)
+  if (m && SCENE_IDS[m[1]]) return SCENE_IDS[m[1]]
+  if (MERGED_IDS[s]) return MERGED_IDS[s]
+  return TEXT_TWINS.indexOf(s) >= 0 ? "img-" + s : s
+}
+
 function parseConfig(raw) {
-  var c = { enabled: true, mode: "selected", effect: "frame", maxChars: 0, keyOnlyClasses: [], sizes: ["M"], anchor: "selection", durationMs: 200, themeColors: true, followTheme: false, info: "off", fallback: "off", devReload: false }
+  var c = { enabled: true, mode: "selected", effect: "img-frame", maxChars: 0, keyOnlyClasses: [], sizes: ["IMG"], anchor: "selection", durationMs: 200, themeColors: true, followTheme: false, info: "off", fallback: "off", devReload: false, placement: "text", scale: 100 }
   try {
     var j = JSON.parse(raw)
     if (Array.isArray(j.keyOnlyClasses)) c.keyOnlyClasses = j.keyOnlyClasses.map(String)
@@ -78,12 +115,14 @@ function parseConfig(raw) {
     if (typeof j.themeColors === "boolean") c.themeColors = j.themeColors
     if (typeof j.followTheme === "boolean") c.followTheme = j.followTheme
     if (typeof j.devReload === "boolean") c.devReload = j.devReload
+    if (PLACEMENTS.indexOf(j.placement) >= 0) c.placement = j.placement
+    if (Number(j.scale) > 0) c.scale = clampScale(j.scale)
     if (j.fallback === "panel" || j.fallback === "off") c.fallback = j.fallback
     if (j.info === "smart" || j.info === "always" || j.info === "off") c.info = j.info
     if (Number(j.durationMs) > 0) c.durationMs = Math.max(30, Math.min(5000, Math.round(Number(j.durationMs))))
     if (typeof j.enabled === "boolean") c.enabled = j.enabled
     if (j.mode === "random" || j.mode === "selected") c.mode = j.mode
-    if (typeof j.effect === "string") c.effect = j.effect
+    if (typeof j.effect === "string") c.effect = renamedId(j.effect)
     if (j.maxChars >= 0) c.maxChars = Math.floor(j.maxChars)
     if (j.galleryPos && isFinite(Number(j.galleryPos.x)) && isFinite(Number(j.galleryPos.y))) c.galleryPos = { x: Math.round(Number(j.galleryPos.x)), y: Math.round(Number(j.galleryPos.y)) }
   } catch (err) {}
@@ -99,7 +138,7 @@ function clampGalleryPos(pos, screenW, screenH, cardW, cardH) {
 
 // Sizes shown in the gallery: the chosen ones that exist; nothing chosen = everything.
 function visibleSizes(chosen, present) {
-  var order = ["M", "IMG", "S", "L", "XL"], pres = order.filter(function(z) { return present.indexOf(z) >= 0 })
+  var order = ["IMG", "S", "XL"], pres = order.filter(function(z) { return present.indexOf(z) >= 0 })
   var sel = pres.filter(function(z) { return (chosen || []).indexOf(z) >= 0 })
   return sel.length ? sel : pres
 }
@@ -418,7 +457,7 @@ var MENU_GROUPS = [["playful", "Playful"], ["clean", "Clean"], ["simple", "Simpl
   ["weather", "Weather"], ["party", "Party"], ["retro", "Retro"], ["arcade", "Arcade"], ["neon", "Neon"], ["cyber", "Cyber"], ["hacker", "Hacker"],
   ["dev", "Dev"], ["nerdy", "Nerdy"], ["physics", "Physics"], ["glitch", "Glitch"]]
 function menuKind(size) {
-  return size === "IMG" ? "on the text" : size === "XL" ? "big" : size === "S" ? "small" : "letters"
+  return size === "IMG" ? "on the text" : size === "XL" ? "scene" : "small"
 }
 // Menu rows for the effect list: Favorites, All, one row per tag group, More. Debug effects are left out (dev tools).
 function menuCategories(effects, favs) {
@@ -453,5 +492,7 @@ function applySet(config, set, effectIds) {
   if (typeof set.effect === "string" && (effectIds || []).indexOf(set.effect) >= 0 && c.effect !== set.effect) { c.effect = set.effect; changed = true }
   if ((set.mode === "random" || set.mode === "selected") && c.mode !== set.mode) { c.mode = set.mode; changed = true }
   if (typeof set.enabled === "boolean" && c.enabled !== set.enabled) { c.enabled = set.enabled; changed = true }
+  if (PLACEMENTS.indexOf(set.placement) >= 0 && c.placement !== set.placement) { c.placement = set.placement; changed = true }
+  if (Number(set.scale) > 0 && c.scale !== clampScale(set.scale)) { c.scale = clampScale(set.scale); changed = true }
   return { config: c, changed: changed }
 }

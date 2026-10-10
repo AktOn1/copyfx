@@ -1,1 +1,1 @@
-{"name": "Arcade (image)", "description": "A yellow/red arcade blink on the real text and a +score pops up.", "anchor": "cursor", "duration": 1500, "maxChars": 0, "selection": true, "size": "IMG", "tags": ["arcade", "by-image", "retro"], "posterMs": 90}
+{"name": "Arcade", "description": "A yellow/red arcade blink on the real text and a +score pops up.", "anchor": "cursor", "duration": 1500, "maxChars": 0, "selection": true, "size": "IMG", "tags": ["arcade", "by-image", "retro"], "posterMs": 90}

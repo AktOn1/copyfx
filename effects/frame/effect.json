@@ -1,1 +1,0 @@
-{"name": "Frame", "description": "A border draws itself around the original text and fades.", "anchor": "bottom", "duration": 2000, "posterMs": 90, "size": "M", "tags": ["clean", "on-text"], "maxChars": 1500, "selection": true}

@@ -19,7 +19,7 @@ Window {
     Loader { id: ld; anchors.fill: parent } }
   Component.onCompleted: ld.setSource("file://$dir/effects/$id/Effect.qml", {
     text: "$text", fg: "#e6e6e6", bg: "#14161a", accent: "#f19d88", fontFamily: "${FONT:-sans-serif}", fontSize: $compact ? 15 : 24,
-    compact: $compact, srcBg: "#3465a4", srcFg: "#ffffff", srcMono: ${SRCMONO:-false}, selFound: $SELFOUND, selRects: ${RECTS:-[]}, sprite: ${SPRITE:-null}, runMs: ${RUNMS:-200}${THEME:+, theme: $THEME} })
+    compact: $compact, srcBg: "#3465a4", srcFg: "#ffffff", selFound: $SELFOUND, selRects: ${RECTS:-[]}, sprite: ${SPRITE:-null}, runMs: ${RUNMS:-200}${THEME:+, theme: $THEME} })
   Timer { interval: 1; running: true; onTriggered: console.log("first tick after " + (Date.now() - w.t0) + " ms") }
   Connections { target: ld.item; ignoreUnknownSignals: true; function onFinished() { console.log("finished after " + (Date.now() - w.t0) + " ms") } }
   Timer { interval: 40; running: true; onTriggered: if (ld.item) ld.item.origin = Qt.point($OX, $OY) }

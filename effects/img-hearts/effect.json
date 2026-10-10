@@ -1,1 +1,1 @@
-{"name": "Hearts (image)", "description": "Little hearts float up from the real text and the letters swell gently, like a warm hug.", "anchor": "cursor", "duration": 1500, "maxChars": 0, "selection": true, "size": "IMG", "tags": ["by-image", "cute", "wholesome"], "posterMs": 90}
+{"name": "Hearts", "description": "Little hearts float up from the real text and the letters swell gently, like a warm hug.", "anchor": "cursor", "duration": 1500, "maxChars": 0, "selection": true, "size": "IMG", "tags": ["by-image", "cute", "wholesome"], "posterMs": 90}

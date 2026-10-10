@@ -1,0 +1,1 @@
+{"name": "LED Matrix Scoreboard", "description": "An amber dot-matrix scoreboard. The dots are the real glyph shapes of your text, scrolling like a marquee if it is long.", "anchor": "cursor", "duration": 4200, "maxChars": 140, "scene": true, "posterMs": 700, "size": "XL", "tags": ["retro", "display"]}

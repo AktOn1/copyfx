@@ -1,1 +1,0 @@
-{"name": "Arcade", "description": "A yellow/red arcade blink on the original text and a +score pops up.", "anchor": "cursor", "duration": 1800, "maxChars": 1500, "posterMs": 90, "size": "M", "tags": ["arcade", "on-text", "retro"], "selection": true}

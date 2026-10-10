@@ -26,12 +26,12 @@ Item {
   readonly property bool testing: root.galleryOpen || root.menuOpen
   property var effects: []
   // Gallery filter: the smallest size present is always on, the others are chips in the header.
-  readonly property var presentSizes: { var z = []; root.effects.forEach(function(e) { if (z.indexOf(e.size) < 0) z.push(e.size) }); return z }
+  readonly property var presentSizes: { var z = []; root.effects.forEach(function(e) { if (!e.debug && z.indexOf(e.size) < 0) z.push(e.size) }); return z }
   readonly property var shownSizes: Logic.visibleSizes(root.config.sizes, root.presentSizes)
   readonly property var chipSizes: Logic.chosenSizes(root.config.sizes, root.presentSizes)
   property string query: ""
   readonly property var shown: root.effects.filter(function(e) {
-    return root.shownSizes.indexOf(e.size) >= 0 && Logic.matchesQuery(e, root.query)
+    return !e.debug && root.shownSizes.indexOf(e.size) >= 0 && Logic.matchesQuery(e, root.query)
   })
   property var config: Logic.parseConfig("")
   property int cursorIndex: 0
@@ -61,7 +61,6 @@ Item {
   property var pendingWin: [0, 0, 0, 0]   // focused window x, y, w, h: the only place a selection can be
   property color fxSrcBg: "black"
   property color fxSrcFg: "white"
-  property bool fxMono: false
   property bool fxSelFound: false
   property var fxSelRects: []
   property var fxSprite: null         // the selected text cut out of the screenshot (find-selection sprites=): {url,x,y,w,h,rows}
@@ -138,7 +137,7 @@ Item {
     if (p.yank) { root.onYank(p.yank); return }
     if (p.weatherTest !== undefined) { root.weatherOverride = String(p.weatherTest); console.log("copyfx: weather override", root.weatherOverride || "(none)", "->", root.weatherEffectId); return }
     // Dev loop without restarting the whole shell (which flickers the bar): QML types are cached per URL for the life of the shell, so
-    // {"reload":true} copies effects/, the effect base classes (EffectBase/SourceText/SpriteText/FxText...) and logic to a fresh
+    // {"reload":true} copies effects/, the effect base classes (EffectBase/SpriteText/FxText...) and logic to a fresh
     // versioned directory under $XDG_RUNTIME_DIR/copyfx-dev and plays effects from THERE from now on (new URLs = no stale cache).
     // CopyFx.qml itself and PreviewCard.qml are the host and still need omarchy-restart-shell.
     if (p.reload) {
@@ -151,7 +150,7 @@ Item {
       root.materialise(src)
       return
     }
-    if (p.notify) { root.notify(p.notify); return }
+    if (p.notify) { if (p.notify.file) { notifyRead.running = false; notifyRead.running = true } else root.notify(p.notify); return }
     if (p.rightClick) { rcProc.running = false; rcProc.running = true; return }
     if (p.copyKey) {   // sent by the non-consuming Ctrl+C / Ctrl+X binds in bindings.lua
       root.intentAt = Date.now()
@@ -162,7 +161,7 @@ Item {
       return
     }
     if (p.test) {
-      root.trigger(String(p.test), p.effect ? String(p.effect) : "")
+      root.trigger(String(p.test), p.effect ? String(p.effect) : "", false, Logic.PLACEMENTS.indexOf(p.place) >= 0 ? p.place : "", p.scale)
       return
     }
     root.galleryOpen = true
@@ -186,11 +185,19 @@ Item {
   // ---------- notifications (notifyfx) ----------
   // {"notify": {"text","title","position","duration"(ms),"effect","level","icon"}} shows any effect as a notification at a named
   // screen position for a chosen time. The default effect is "toast". One notification at a time: a new one replaces the old.
+  // notifyfx writes the message to a private file in the runtime dir (never a process argument) and the summon only says "file".
+  Process {
+    id: notifyRead
+    command: ["sh", "-c", "f=\"$1\"; head -c 200000 \"$f\"; rm -f \"$f\"", "sh", root.runDir + "/copyfx-notify.json"]
+    stdout: StdioCollector {
+      onStreamFinished: { var n = null; try { n = JSON.parse(this.text) } catch (e) {} if (n) root.notify(n) }
+    }
+  }
   function notify(n) {
-    var id = String(n.effect || "toast")
+    var id = Logic.renamedId(n.effect || "toast")
     if (!root.effects.some(function(e) { return e.id === id })) { console.log("copyfx: notify: unknown effect", id); id = "toast" }
     root.pendingNotify = { pos: String(n.position || ""), dur: Math.max(0, Number(n.duration) || 0), title: String(n.title || ""),
-                           level: String(n.level || "info"), icon: String(n.icon || "") }
+                           level: String(n.level || "info"), icon: String(n.icon || ""), scale: Number(n.scale) || 0 }
     root.trigger(String(n.text || n.title || ""), id)
   }
   // Anchor point for a named position (effects that use `origin` instead of boxX/boxY follow it too).
@@ -239,6 +246,7 @@ Item {
     root.cursorIndex = Math.max(0, i)
     flick.contentY = 0
   }
+  function previewCurrent() { root.trigger("Copied to clipboard", root.shown[root.cursorIndex] ? root.shown[root.cursorIndex].id : "") }
   function choose(idx) {
     if (idx < 0 || idx >= root.shown.length) return
     root.setConfig("effect", root.shown[idx].id)
@@ -247,13 +255,17 @@ Item {
 
   // ---------- playing an effect ----------
   // Probe the cursor first so the effect can appear on that monitor / next to the mouse.
-  function trigger(text, forceId, viaKey) {
+  property string pendingPlace: ""        // one-off placement / size (test payloads, notifications); "" / 0 = from config
+  property real pendingScale: 0
+  function trigger(text, forceId, viaKey, place, scale) {
     var t = Logic.sanitize(text, 0)   // the per-effect limit is applied in play()
     if (!t || root.effects.length === 0) { console.log("copyfx: skip (empty text or no effects)"); return }
     root.pendingText = t
     root.pendingRaw = String(text)
-    root.pendingForce = forceId
+    root.pendingForce = forceId ? Logic.renamedId(forceId) : forceId
     root.pendingViaKey = !!viaKey
+    root.pendingPlace = place || ""
+    root.pendingScale = Number(scale) || 0
     cursorProc.running = false
     cursorProc.running = true
   }
@@ -544,13 +556,22 @@ Item {
     root.fxOrigin = root.posOrigin(root.fxPos, scr.width, scr.height, x - scr.x, y - scr.y)
     root.fxText = Logic.sanitize(root.pendingText, Logic.textLimit(root.config.maxChars, eff ? eff.maxChars : 0))
     root.fxId = id
-    root.fxMono = Logic.isMonoClass(root.pendingCls)
     root.fxSrcBg = root.background
     root.fxSrcFg = root.foreground
     root.fxSelFound = false
     root.fxSelRects = []
     root.fxSprite = null
     root.fxSelDebug = ({})
+    // Placement: "text" plays on the copied text (below). Anything else plays at the cursor / a screen position: scenes and panels through
+    // the named spots notifications use, by-image effects on a typeset card that stands in for the selection (find-selection --card).
+    var place = nt ? (nt.pos || "cursor") : (root.pendingPlace || root.config.placement)
+    var pct = Logic.clampScale((nt && nt.scale) || root.pendingScale || root.config.scale)
+    root.fxRunMs = nt && nt.dur > 0 && eff && eff.selection ? nt.dur : root.config.durationMs
+    if (!nt && place !== "text" && eff && !eff.selection) root.fxPos = place === "cursor" ? "" : place
+    if (eff && eff.selection && place !== "text") {
+      root.cardStart(place, pct, x - scr.x, y - scr.y)
+      return
+    }
     // Every effect starts where the copied text was (config anchor "selection", the default; "cursor" skips the detection).
     var wantSel = eff && (eff.selection || (root.config.anchor === "selection" && !nt && !root.testing))
     var usePref = wantSel && eff && eff.selection !== false && root.config.anchor === "selection"
@@ -683,6 +704,49 @@ Item {
       }
     }
     rest()
+  }
+
+  // ---------- text card (placement other than "text") ----------
+  property int fxRunMs: 200
+  property var cardJob: null
+  function cardStart(place, pct, mx, my) {
+    var scr = root.fxScreen, b = root.background, f = root.foreground, k = 0.1
+    var px = Math.max(8, Math.round(24 * pct / 100))
+    root.cardJob = { place: place, mx: mx, my: my, id: Date.now() }
+    root.lap("card: " + place + " at " + pct + "%")
+    cardProc.environment = { COPYFX_CARD: JSON.stringify({
+      text: root.fxText, family: root.fontFamily, px: px, fg: String(Qt.rgba(f.r, f.g, f.b, 1)),
+      bg: String(Qt.rgba(b.r + (f.r - b.r) * k, b.g + (f.g - b.g) * k, b.b + (f.b - b.b) * k, 1)),
+      maxw: Math.min(scr.width - 60, px * 24), maxLines: Math.max(3, Math.min(8, Math.floor((scr.height - 160) / (px * 1.5))))
+    }) }
+    cardProc.command = [root.selectionScript, "--card"].concat(root.spriteArgs())
+    cardProc.running = false
+    cardProc.running = true
+  }
+  function cardApply(c) {
+    var job = root.cardJob, scr = root.fxScreen
+    root.cardJob = null
+    if (!job || !scr || !c || !c.found) { console.log("copyfx: card failed", c && c.error); return }
+    var pos = Logic.cardPlace(job.place, c.w, c.h, scr.width, scr.height, job.mx, job.my)
+    root.fxSrcBg = c.bg
+    root.fxSrcFg = c.fg
+    root.fxSelRects = c.rects.map(function(r) { return { x: r.x + pos.x, y: r.y + pos.y, w: r.w, h: r.h, il: r.il || 0, ir: r.ir || 0, it: r.it || 0, ib: r.ib || 0, gaps: r.gaps || [] } })
+    root.fxSelLineH = c.lineH || 0
+    root.fxSelFound = true
+    if (c.sprite) root.fxSprite = { url: "file://" + c.sprite.file, x: pos.x, y: pos.y, w: c.sprite.w, h: c.sprite.h, rows: c.sprite.rows }
+    root.start()
+  }
+  Process {
+    id: cardProc
+    stderr: StdioCollector { onStreamFinished: if (this.text.trim()) console.log("copyfx: card stderr", this.text.slice(0, 300)) }
+    stdout: StdioCollector {
+      onStreamFinished: {
+        if (!this.text.trim()) return          // a killed run (a newer copy replaced it)
+        var c = null
+        try { c = JSON.parse(this.text) } catch (e) {}
+        root.cardApply(c)
+      }
+    }
   }
 
   property var verifyCb: null
@@ -1155,8 +1219,8 @@ Item {
         fxLoader.setSource(root.effectBase + "effects/" + root.fxId + "/Effect.qml", {
           text: root.fxText, fg: root.foreground, bg: root.background, accent: root.accent,
           fontFamily: root.fontFamily, fontSize: 24, compact: false,
-          srcBg: root.fxSrcBg, srcFg: root.fxSrcFg, srcMono: root.fxMono,
-          selFound: root.fxSelFound, selRects: root.fxSelRects, sprite: root.fxSprite, runMs: root.config.durationMs, weather: root.weatherState(), theme: root.effectTheme, selLineH: root.fxSelLineH, selDebug: root.fxSelDebug,
+          srcBg: root.fxSrcBg, srcFg: root.fxSrcFg,
+          selFound: root.fxSelFound, selRects: root.fxSelRects, sprite: root.fxSprite, runMs: root.fxRunMs, weather: root.weatherState(), theme: root.effectTheme, selLineH: root.fxSelLineH, selDebug: root.fxSelDebug,
           fbPx: root.fxFbPx, fbBg: root.fxFbBg, fbFg: root.fxFbFg,
           posName: root.fxPos, durationMs: root.fxDurationMs, title: root.fxTitle, level: root.fxLevel, icon: root.fxIcon
         })
@@ -1221,7 +1285,7 @@ Item {
             root.choose(root.cursorIndex)
             root.trigger("Copied to clipboard", root.shown[root.cursorIndex] ? root.shown[root.cursorIndex].id : "")
           } else if (event.key === Qt.Key_Tab) {
-            var order = ["M", "IMG", "S", "L", "XL"].filter(function(z) { return root.presentSizes.indexOf(z) >= 0 })
+            var order = ["IMG", "S", "XL"].filter(function(z) { return root.presentSizes.indexOf(z) >= 0 })
             var cur = root.chipSizes.length ? order.indexOf(root.chipSizes[0]) : -1
             var nxt = order[(cur + 1) % order.length]
             root.setConfig("sizes", [nxt])   // Tab cycles through the groups one at a time
@@ -1396,13 +1460,13 @@ Item {
               font.pixelSize: 13
             }
             Repeater {
-              model: ["M", "IMG", "S", "L", "XL"].filter(function(z) { return root.presentSizes.indexOf(z) >= 0 })
+              model: ["IMG", "S", "XL"].filter(function(z) { return root.presentSizes.indexOf(z) >= 0 })
               delegate: Rectangle {
                 id: chip
                 required property string modelData
                 readonly property bool on: root.chipSizes.indexOf(modelData) >= 0
                 readonly property bool locked: false
-                readonly property int count: root.effects.filter(function(e) { return e.size === modelData }).length
+                readonly property int count: root.effects.filter(function(e) { return !e.debug && e.size === modelData }).length
                 width: chipText.width + 22
                 height: 26
                 radius: 13
@@ -1412,7 +1476,7 @@ Item {
                 Text { textFormat: Text.PlainText;
                   id: chipText
                   anchors.centerIn: parent
-                  text: ({ "S": "S", "M": "On text", "IMG": "By image", "L": "L", "XL": "XXL" })[chip.modelData] + "  " + chip.count
+                  text: ({ "S": "Notices", "IMG": "Effects", "XL": "Scenes" })[chip.modelData] + "  " + chip.count
                   color: chip.on ? root.accent : Util.alpha(root.foreground, 0.75)
                   font.family: root.fontFamily
                   font.pixelSize: 12
@@ -1423,6 +1487,104 @@ Item {
                   cursorShape: chip.locked ? Qt.ArrowCursor : Qt.PointingHandCursor
                   onClicked: root.toggleSizeChip(chip.modelData)
                 }
+              }
+            }
+            Text { textFormat: Text.PlainText;
+              anchors.verticalCenter: parent.verticalCenter
+              text: "Place"
+              color: Util.alpha(root.foreground, 0.7)
+              font.family: root.fontFamily
+              font.pixelSize: 13
+            }
+            Rectangle {
+              id: placeChip
+              readonly property bool on: root.config.placement !== "text"
+              width: placeText.width + 22; height: 26; radius: 13
+              color: on ? Util.alpha(root.accent, 0.28) : "transparent"
+              border.width: 1
+              border.color: on ? root.accent : Util.alpha(root.foreground, 0.3)
+              Text { textFormat: Text.PlainText;
+                id: placeText
+                anchors.centerIn: parent
+                text: Logic.PLACEMENT_LABELS[root.config.placement]
+                color: placeChip.on ? root.accent : Util.alpha(root.foreground, 0.75)
+                font.family: root.fontFamily
+                font.pixelSize: 12
+                font.bold: placeChip.on
+              }
+              MouseArea {
+                anchors.fill: parent
+                cursorShape: Qt.PointingHandCursor
+                acceptedButtons: Qt.LeftButton | Qt.RightButton
+                onClicked: function(mouse) {
+                  root.setConfig("placement", Logic.nextPlacement(root.config.placement, mouse.button === Qt.RightButton ? -1 : 1))
+                  root.previewCurrent()
+                }
+              }
+            }
+            Row {
+              visible: root.config.placement !== "text"
+              spacing: Style.spacing.sm
+              anchors.verticalCenter: parent.verticalCenter
+              Text { textFormat: Text.PlainText;
+                anchors.verticalCenter: parent.verticalCenter
+                text: "Scale"
+                color: Util.alpha(root.foreground, 0.7)
+                font.family: root.fontFamily
+                font.pixelSize: 13
+              }
+              Rectangle {
+                width: 52; height: 26; radius: 13
+                color: "transparent"
+                border.width: 1
+                border.color: scaleField.activeFocus ? root.accent : Util.alpha(root.foreground, 0.3)
+                TextInput {
+                  id: scaleField
+                  anchors.fill: parent
+                  anchors.leftMargin: 6; anchors.rightMargin: 6
+                  horizontalAlignment: TextInput.AlignHCenter
+                  verticalAlignment: TextInput.AlignVCenter
+                  inputMethodHints: Qt.ImhDigitsOnly
+                  validator: IntValidator { bottom: 1; top: 999 }
+                  color: root.foreground
+                  selectionColor: root.accent
+                  font.family: root.fontFamily
+                  font.pixelSize: 13
+                  text: String(root.config.scale)
+                  Connections { target: root; function onConfigChanged() { if (!scaleField.activeFocus) scaleField.text = String(root.config.scale) } }
+                  function commit() {
+                    var v = parseInt(text)
+                    if (isNaN(v)) { text = String(root.config.scale); return false }
+                    v = Logic.clampScale(v)
+                    text = String(v)
+                    if (v !== root.config.scale) root.setConfig("scale", v)
+                    return true
+                  }
+                  Keys.priority: Keys.BeforeItem
+                  Keys.onPressed: function(event) {
+                    if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+                      if (commit()) root.previewCurrent()
+                      searchField.forceActiveFocus()
+                      event.accepted = true
+                    } else if (event.key === Qt.Key_Escape) {
+                      text = String(root.config.scale)
+                      searchField.forceActiveFocus()
+                      event.accepted = true
+                    } else if (event.key === Qt.Key_Tab) {
+                      commit()
+                      searchField.forceActiveFocus()
+                      event.accepted = true
+                    }
+                  }
+                  onEditingFinished: commit()
+                }
+              }
+              Text { textFormat: Text.PlainText;
+                anchors.verticalCenter: parent.verticalCenter
+                text: "%"
+                color: Util.alpha(root.foreground, 0.7)
+                font.family: root.fontFamily
+                font.pixelSize: 13
               }
             }
           }

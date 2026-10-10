@@ -17,7 +17,6 @@ Item {
   // mouse when you copied, and whether the source window looks like a terminal/editor (monospace).
   property color srcBg: bg
   property color srcFg: fg
-  property bool srcMono: false
 
   // Only filled for effects with "selection": true: where the copied text sits on screen, found by looking for the
   // selection highlight next to the mouse (see find-selection). selRects = one rect per text line, in this item's

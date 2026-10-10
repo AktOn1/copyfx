@@ -1,1 +1,0 @@
-{"name": "Bleed (still, test)", "description": "Test twin of Bleed that never animates: for checking where the overlay sits against the original text.", "anchor": "selection", "duration": 8500, "maxChars": 1500, "selection": true, "debug": true, "posterMs": 300, "size": "M", "tags": ["debug", "dev", "on-text"]}

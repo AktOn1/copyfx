@@ -1,1 +1,1 @@
-{"name": "Frame (image)", "description": "A border draws itself around the real text and fades.", "anchor": "cursor", "duration": 1500, "maxChars": 0, "selection": true, "size": "IMG", "tags": ["by-image", "clean"], "posterMs": 90}
+{"name": "Frame", "description": "A border draws itself around the real text and fades.", "anchor": "cursor", "duration": 1500, "maxChars": 0, "selection": true, "size": "IMG", "tags": ["by-image", "clean"], "posterMs": 90}

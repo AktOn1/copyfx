@@ -1,1 +1,1 @@
-{"name": "Chomper (image)", "description": "A round muncher runs along the real text and eats it, line by line.", "anchor": "cursor", "duration": 1500, "maxChars": 0, "selection": true, "size": "IMG", "tags": ["arcade", "by-image", "retro"], "posterMs": 90}
+{"name": "Chomper", "description": "A round muncher runs along the real text and eats it, line by line.", "anchor": "cursor", "duration": 1500, "maxChars": 0, "selection": true, "size": "IMG", "tags": ["arcade", "by-image", "retro"], "posterMs": 90}

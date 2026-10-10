@@ -1,1 +1,1 @@
-{"name": "Terminal (image)", "description": "The real letters are typed out in green on black with a block cursor.", "anchor": "cursor", "duration": 1500, "maxChars": 0, "selection": true, "size": "IMG", "tags": ["by-image", "dev", "hacker"], "posterMs": 150}
+{"name": "Terminal", "description": "The real letters are typed out in green on black with a block cursor.", "anchor": "cursor", "duration": 1500, "maxChars": 0, "selection": true, "size": "IMG", "tags": ["by-image", "dev", "hacker"], "posterMs": 150}

@@ -1,1 +1,1 @@
-{"name": "Domino (image)", "description": "The real letters topple like dominoes, one knocking the next, and spring back up.", "anchor": "cursor", "duration": 1500, "maxChars": 0, "selection": true, "size": "IMG", "tags": ["by-image", "physics", "playful"], "posterMs": 90}
+{"name": "Domino", "description": "The real letters topple like dominoes, one knocking the next, and spring back up.", "anchor": "cursor", "duration": 1500, "maxChars": 0, "selection": true, "size": "IMG", "tags": ["by-image", "physics", "playful"], "posterMs": 90}

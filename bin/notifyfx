@@ -25,7 +25,7 @@ def effects():
             j = json.load(open(os.path.join(d, name, "effect.json")))
         except Exception:
             continue
-        out.append((name, j.get("name", name), j.get("description", ""), bool(j.get("xxl")), bool(j.get("debug"))))
+        out.append((name, j.get("name", name), j.get("description", ""), bool(j.get("scene")), bool(j.get("debug"))))
     return out
 
 
@@ -38,6 +38,17 @@ def parse_duration(s):
 
 
 def send(payload):
+    # The message text never travels in a process argument (readable by other local users): it goes through a private file in the
+    # runtime dir and the summon only says "file".
+    if "notify" in payload:
+        d = os.environ.get("XDG_RUNTIME_DIR") or os.path.join(os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share"), "omarchy-shell", "copyfx", "run")
+        os.makedirs(d, mode=0o700, exist_ok=True)
+        path = os.path.join(d, "copyfx-notify.json")
+        fd = os.open(path + ".new", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as f:
+            json.dump(payload["notify"], f, ensure_ascii=False)
+        os.replace(path + ".new", path)
+        payload = {"notify": {"file": True}}
     r = subprocess.run(["omarchy-shell", "shell", "summon", PLUGIN_ID, json.dumps(payload)], capture_output=True, text=True)
     if r.returncode != 0 or "ok" not in r.stdout:
         sys.exit("notifyfx: the shell did not accept it (%s). Is the %s plugin enabled?" % ((r.stdout + r.stderr).strip() or "no answer", PLUGIN_ID))
@@ -63,8 +74,8 @@ def main():
         print("\n".join(POSITIONS))
         return
     if a.list_effects:
-        for i, name, desc, xxl, dbg in effects():
-            print("%-16s %-18s %s%s" % (i, name, "[XXL] " if xxl else "", desc))
+        for i, name, desc, scene, dbg in effects():
+            print("%-16s %-18s %s%s" % (i, name, "[Scene] " if scene else "", desc))
         return
     if a.stop:
         send({"stop": True})

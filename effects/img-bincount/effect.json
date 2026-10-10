@@ -1,1 +1,1 @@
-{"name": "Binary Counter (image)", "description": "Eight LEDs count up in binary as the real letters light up in amber, one per tick.", "anchor": "cursor", "duration": 1500, "maxChars": 0, "selection": true, "size": "IMG", "tags": ["by-image", "hardware", "nerdy", "retro"], "posterMs": 90}
+{"name": "Binary Counter", "description": "Eight LEDs count up in binary as the real letters light up in amber, one per tick.", "anchor": "cursor", "duration": 1500, "maxChars": 0, "selection": true, "size": "IMG", "tags": ["by-image", "hardware", "nerdy", "retro"], "posterMs": 90}

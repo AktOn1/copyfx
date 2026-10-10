@@ -1,1 +1,1 @@
-{"name": "Jump (image)", "description": "The real letters, cut from the screen, hop one after another.", "anchor": "cursor", "duration": 1500, "maxChars": 0, "selection": true, "size": "IMG", "tags": ["by-image", "playful"], "posterMs": 90}
+{"name": "Jump", "description": "The real letters, cut from the screen, hop one after another.", "anchor": "cursor", "duration": 1500, "maxChars": 0, "selection": true, "size": "IMG", "tags": ["by-image", "playful"], "posterMs": 90}

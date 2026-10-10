@@ -1,1 +1,1 @@
-{"name": "Wave (image)", "description": "The real letters ride a rainbow wave.", "anchor": "cursor", "duration": 1500, "maxChars": 0, "selection": true, "size": "IMG", "tags": ["by-image", "playful"], "posterMs": 90}
+{"name": "Wave", "description": "The real letters ride a rainbow wave.", "anchor": "cursor", "duration": 1500, "maxChars": 0, "selection": true, "size": "IMG", "tags": ["by-image", "playful"], "posterMs": 90}

@@ -1,1 +1,1 @@
-{"name": "Rainbow Run (image)", "description": "A rainbow wave runs over the real letters.", "anchor": "cursor", "duration": 1500, "maxChars": 0, "selection": true, "size": "IMG", "tags": ["by-image", "simple"], "posterMs": 90}
+{"name": "Rainbow Run", "description": "A rainbow wave runs over the real letters.", "anchor": "cursor", "duration": 1500, "maxChars": 0, "selection": true, "size": "IMG", "tags": ["by-image", "simple"], "posterMs": 90}

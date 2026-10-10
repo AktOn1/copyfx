@@ -1,1 +1,1 @@
-{"name": "Bounce (image)", "description": "The real letters drop and bounce like rubber balls, settling back one after another.", "anchor": "cursor", "duration": 1500, "maxChars": 0, "selection": true, "size": "IMG", "tags": ["by-image", "physics", "playful"], "posterMs": 90}
+{"name": "Bounce", "description": "The real letters drop and bounce like rubber balls, settling back one after another.", "anchor": "cursor", "duration": 1500, "maxChars": 0, "selection": true, "size": "IMG", "tags": ["by-image", "physics", "playful"], "posterMs": 90}

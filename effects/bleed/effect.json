@@ -1,1 +1,0 @@
-{"name": "Bleed", "description": "Prototype: finds the highlighted selection on screen and draws the copied text exactly there, then the letters bleed away.", "anchor": "selection", "duration": 3200, "maxChars": 1500, "selection": true, "posterMs": 90, "size": "M", "tags": ["clean", "source", "on-text"]}

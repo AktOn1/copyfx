@@ -1,1 +1,0 @@
-{"name": "Echo", "description": "A ring pulses on the original text and the selection flashes in the accent colour.", "anchor": "cursor", "duration": 2600, "sample": false, "posterMs": 90, "size": "M", "tags": ["clean", "on-text"], "selection": true, "maxChars": 1500}

@@ -61,7 +61,7 @@ BarWidget {
     atomicWrites: true
     printErrors: false
     onFileChanged: reload()
-    onLoaded: root.favs = String(text() || "").split("\n").map(function(l) { return l.trim() }).filter(function(l) { return l !== "" })
+    onLoaded: root.favs = String(text() || "").split("\n").map(function(l) { return l.trim() }).filter(function(l) { return l !== "" }).map(Logic.renamedId)
   }
 
   // ---------------------------------------------------------------- actions
@@ -88,7 +88,7 @@ BarWidget {
     root.say(m === "random" ? "A different effect on every copy" : "Always the chosen effect")
   }
   function surprise() {
-    var pool = root.effects.filter(function(e) { return !e.debug && !e.xxl && e.id !== root.config.effect })
+    var pool = root.effects.filter(function(e) { return !e.debug && !e.scene && e.id !== root.config.effect })
     if (pool.length === 0) return
     var e = pool[Math.floor(Math.random() * pool.length)]
     root.keep(e.id, true)

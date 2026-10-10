@@ -17,7 +17,7 @@ assert.strictEqual(ctx.pickEffect(eff, "selected", "zzz", "", 0), "a")
 assert.strictEqual(ctx.pickEffect(eff, "random", "a", "a", 0), "b")
 assert.strictEqual(ctx.pickEffect([], "random", "a", "", 0), "")
 
-assert.strictEqual(j(ctx.parseConfig("garbage")), j({ enabled: true, mode: "selected", effect: "frame", maxChars: 0, keyOnlyClasses: [], sizes: ["M"], anchor: "selection", durationMs: 200, themeColors: true, followTheme: false, info: "off", fallback: "off", devReload: false }))
+assert.strictEqual(j(ctx.parseConfig("garbage")), j({ enabled: true, mode: "selected", effect: "img-frame", maxChars: 0, keyOnlyClasses: [], sizes: ["IMG"], anchor: "selection", durationMs: 200, themeColors: true, followTheme: false, info: "off", fallback: "off", devReload: false, placement: "text", scale: 100 }))
 assert.strictEqual(ctx.parseConfig('{"devReload":true}').devReload, true)
 assert.strictEqual(ctx.parseConfig('{"devReload":"yes"}').devReload, false)
 assert.strictEqual(ctx.isWeatherEffect("img-rain"), true); assert.strictEqual(ctx.isWeatherEffect("frame"), false); assert.strictEqual(ctx.isWeatherEffect(undefined), false)
@@ -41,13 +41,13 @@ assert.strictEqual(e2[0].maxChars, 80); assert.strictEqual(e2[0].sample, true); 
 const mixed = ctx.parseEffects('{"id":"a"}\n{"id":"b"}\n{"id":"dbg","debug":true}')
 for (let k = 0; k < 20; k++) assert.notStrictEqual(ctx.pickEffect(mixed, "random", "a", "", k / 20), "dbg")
 assert.strictEqual(ctx.pickEffect(mixed, "selected", "dbg", "", 0), "dbg")
-const big = ctx.parseEffects('{"id":"a"}\n{"id":"b-xxl","xxl":true}')
+const big = ctx.parseEffects('{"id":"a"}\n{"id":"b-scene","scene":true}')
 for (let k = 0; k < 10; k++) assert.strictEqual(ctx.pickEffect(big, "random", "", "", k / 10), "a")
-assert.strictEqual(j(ctx.visibleSizes(["XL", "M"], ["S", "M", "XL"])), j(["M", "XL"]))
+assert.strictEqual(j(ctx.visibleSizes(["XL", "IMG"], ["S", "IMG", "XL"])), j(["IMG", "XL"]))
 assert.strictEqual(j(ctx.visibleSizes([], ["S", "XL"])), j(["S", "XL"]))          // nothing chosen shows everything
-assert.strictEqual(j(ctx.visibleSizes(["M"], ["S", "XL"])), j(["S", "XL"]))       // chosen size does not exist: everything
-assert.strictEqual(j(ctx.toggleSize(["M"], "M", ["S", "M"])), j([]))              // any chip can be switched off
-assert.strictEqual(j(ctx.toggleSize(["M"], "XL", ["S", "M", "XL"])), j(["M", "XL"]))
+assert.strictEqual(j(ctx.visibleSizes(["IMG"], ["S", "XL"])), j(["S", "XL"]))       // chosen size does not exist: everything
+assert.strictEqual(j(ctx.toggleSize(["IMG"], "IMG", ["S", "IMG"])), j([]))              // any chip can be switched off
+assert.strictEqual(j(ctx.toggleSize(["IMG"], "XL", ["S", "IMG", "XL"])), j(["IMG", "XL"]))
 const sz = ctx.parseEffects('{"id":"a","size":"XL","tags":["x"]}\n{"id":"b"}')
 assert.strictEqual(sz[0].size, "XL"); assert.strictEqual(sz[1].size, "S"); assert.strictEqual(j(sz[0].tags), j(["x"]))
 assert.strictEqual(ctx.matchesQuery({ name: "Chomper", id: "chomper", description: "eats", tags: ["retro"] }, "chomp"), true)
@@ -55,7 +55,7 @@ assert.strictEqual(ctx.matchesQuery({ name: "Chomper", id: "chomper", descriptio
 assert.strictEqual(ctx.matchesQuery({ name: "A", id: "a", description: "", tags: [] }, "  "), true)
 const im = ctx.parseEffects('{"id":"i","size":"IMG"}')
 assert.strictEqual(im[0].size, "IMG")
-assert.strictEqual(j(ctx.visibleSizes(["IMG"], ["M", "IMG", "S"])), j(["IMG"]))
+assert.strictEqual(j(ctx.visibleSizes(["IMG"], ["IMG", "S"])), j(["IMG"]))
 assert.strictEqual(ctx.parseConfig('{"durationMs": 9999}').durationMs, 5000)
 assert.strictEqual(ctx.parseConfig('{"durationMs": 5}').durationMs, 30)
 assert.strictEqual(ctx.parseConfig('{"durationMs": "400"}').durationMs, 400)
@@ -171,13 +171,13 @@ assert.strictEqual(ctx.looksLikeLink(""), false)
 console.log("link ok")
 {
   const E = (id, size, tags, extra) => Object.assign({ id, name: id.toUpperCase(), description: "d " + id, size, tags, debug: false }, extra || {})
-  const list = [E("b", "IMG", ["playful", "by-image"]), E("a", "M", ["playful"]), E("c", "IMG", ["playful"]), E("d", "S", ["clean"]), E("x", "XL", ["retro"]), E("dbg", "S", ["debug"], { debug: true })]
+  const list = [E("b", "IMG", ["playful", "by-image"]), E("a", "IMG", ["playful"]), E("c", "IMG", ["playful"]), E("d", "S", ["clean"]), E("x", "XL", ["retro"]), E("dbg", "S", ["debug"], { debug: true })]
   const cats = ctx.menuCategories(list, ["c", "gone", "a"])
   assert.strictEqual(j(cats.map((c) => c.id)), j(["fav", "all", "tag:playful", "more"]))
   assert.strictEqual(j(cats[0].items.map((i) => i.id)), j(["c", "a"]))          // favourites keep their order, unknown ids are dropped
   assert.strictEqual(j(cats[1].items.map((i) => i.id)), j(["a", "b", "c", "d", "x"]))   // sorted by name, debug effects left out
   assert.strictEqual(j(cats[3].items.map((i) => i.id)), j(["d", "x"]))
-  assert.strictEqual(cats[1].items[1].hint, "on the text"); assert.strictEqual(cats[1].items[4].hint, "big"); assert.strictEqual(cats[1].items[3].hint, "small")
+  assert.strictEqual(cats[1].items[1].hint, "on the text"); assert.strictEqual(cats[1].items[4].hint, "scene"); assert.strictEqual(cats[1].items[3].hint, "small")
   assert.strictEqual(ctx.menuCategories([], []).length, 2)
   assert.strictEqual(j(ctx.toggleFav(["a", "b"], "a")), j(["b"])); assert.strictEqual(j(ctx.toggleFav(["a"], "z")), j(["a", "z"])); assert.strictEqual(j(ctx.toggleFav(null, "z")), j(["z"]))
   const cfg = ctx.parseConfig("")
@@ -187,4 +187,28 @@ console.log("link ok")
   assert.strictEqual(r.changed, false); assert.strictEqual(r.config.fallback, "off"); assert.strictEqual(r.config.devReload, false)
   assert.strictEqual(ctx.applySet(cfg, null, []).changed, false)
   console.log("menu ok")
+}
+
+{
+  // placement / scale / renamed ids
+  const d = ctx.parseConfig("")
+  assert.strictEqual(d.placement, "text"); assert.strictEqual(d.scale, 100)
+  const c = ctx.parseConfig('{"placement":"topright","scale":9000,"effect":"chomper-xxl"}')
+  assert.strictEqual(c.placement, "topright"); assert.strictEqual(c.scale, 400); assert.strictEqual(c.effect, "chomper-maze")
+  assert.strictEqual(ctx.parseConfig('{"placement":"nowhere","scale":-3}').placement, "text")
+  assert.strictEqual(ctx.parseConfig('{"scale":1}').scale, 25)
+  assert.strictEqual(ctx.renamedId("img-bloom"), "img-bloom"); assert.strictEqual(ctx.renamedId("led-xxl"), "led-scoreboard")
+  assert.strictEqual(ctx.renamedId("led-extra"), "led-scoreboard"); assert.strictEqual(ctx.renamedId("led"), "img-led"); assert.strictEqual(ctx.renamedId("flash-blink"), "img-flash")
+  assert.strictEqual(ctx.renamedId("bleed"), "img-shatter"); assert.strictEqual(ctx.renamedId("cascade-extra"), "img-cascade"); assert.strictEqual(ctx.renamedId("toast"), "toast")
+  assert.strictEqual(ctx.renamedId("led-scoreboard"), "led-scoreboard"); assert.strictEqual(ctx.renamedId("detect"), "detect")
+  let r = ctx.applySet(d, { placement: "cursor", scale: 150 }, [])
+  assert.strictEqual(r.changed, true); assert.strictEqual(r.config.placement, "cursor"); assert.strictEqual(r.config.scale, 150)
+  assert.strictEqual(ctx.applySet(d, { placement: "mars" }, []).changed, false)
+  const P = (n, mx, my) => j(ctx.cardPlace(n, 400, 100, 1920, 1080, mx, my))
+  assert.strictEqual(P("topleft"), j({ x: 24, y: 46 })); assert.strictEqual(P("bottomright"), j({ x: 1496, y: 956 }))
+  assert.strictEqual(P("center"), j({ x: 760, y: 490 })); assert.strictEqual(P("top"), j({ x: 760, y: 46 }))
+  assert.strictEqual(P("cursor", 500, 300), j({ x: 518, y: 250 }))                    // right of the mouse, level with it
+  assert.strictEqual(P("cursor", 1800, 5), j({ x: 1382, y: 8 }))                       // no room on the right: left of the mouse, kept below the top edge
+  assert.strictEqual(j(ctx.cardPlace("center", 3000, 2000, 1920, 1080, 0, 0)), j({ x: 8, y: 8 }))   // a card bigger than the screen stays on its corner
+  console.log("placement ok")
 }

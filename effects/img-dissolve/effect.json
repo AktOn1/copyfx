@@ -1,1 +1,1 @@
-{"name": "Dissolve (image)", "description": "The real letters break up into nothing at random and pull back together.", "anchor": "cursor", "duration": 1500, "maxChars": 0, "selection": true, "size": "IMG", "tags": ["by-image", "clean", "playful"], "posterMs": 90}
+{"name": "Dissolve", "description": "The real letters break up into nothing at random and pull back together.", "anchor": "cursor", "duration": 1500, "maxChars": 0, "selection": true, "size": "IMG", "tags": ["by-image", "clean", "playful"], "posterMs": 90}

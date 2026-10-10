@@ -1,1 +1,1 @@
-{"name": "Shimmer (image)", "description": "A glint of light sweeps across the real text.", "anchor": "cursor", "duration": 1500, "maxChars": 0, "selection": true, "size": "IMG", "tags": ["by-image", "clean"], "posterMs": 90}
+{"name": "Shimmer", "description": "A glint of light sweeps across the real text.", "anchor": "cursor", "duration": 1500, "maxChars": 0, "selection": true, "size": "IMG", "tags": ["by-image", "clean"], "posterMs": 90}

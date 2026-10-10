@@ -1,1 +1,0 @@
-{"name": "Flash All", "description": "All letters of the original text flash red once, together.", "anchor": "cursor", "duration": 1500, "maxChars": 1500, "selection": true, "posterMs": 90, "size": "M", "tags": ["letters", "simple", "on-text"]}

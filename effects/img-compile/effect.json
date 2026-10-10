@@ -1,1 +1,1 @@
-{"name": "Compile (image)", "description": "A build progress bar fills above the real text; the letters get compiled in one by one.", "anchor": "cursor", "duration": 1500, "maxChars": 0, "selection": true, "size": "IMG", "tags": ["by-image", "dev", "nerdy"], "posterMs": 90}
+{"name": "Compile", "description": "A build progress bar fills above the real text; the letters get compiled in one by one.", "anchor": "cursor", "duration": 1500, "maxChars": 0, "selection": true, "size": "IMG", "tags": ["by-image", "dev", "nerdy"], "posterMs": 90}

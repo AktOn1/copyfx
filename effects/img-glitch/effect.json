@@ -1,1 +1,1 @@
-{"name": "Glitch (image)", "description": "The real letters tear: pieces jitter and flash red and cyan for a moment.", "anchor": "cursor", "duration": 1500, "maxChars": 0, "selection": true, "size": "IMG", "tags": ["by-image", "cyber", "glitch"], "posterMs": 90}
+{"name": "Glitch", "description": "The real letters tear: pieces jitter and flash red and cyan for a moment.", "anchor": "cursor", "duration": 1500, "maxChars": 0, "selection": true, "size": "IMG", "tags": ["by-image", "cyber", "glitch"], "posterMs": 90}

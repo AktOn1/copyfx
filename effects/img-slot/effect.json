@@ -1,1 +1,1 @@
-{"name": "Slot Machine (image)", "description": "The real letters spin like slot reels and stop one after another, first to last.", "anchor": "cursor", "duration": 1500, "maxChars": 0, "selection": true, "size": "IMG", "tags": ["arcade", "by-image", "playful"], "posterMs": 90}
+{"name": "Slot Machine", "description": "The real letters spin like slot reels and stop one after another, first to last.", "anchor": "cursor", "duration": 1500, "maxChars": 0, "selection": true, "size": "IMG", "tags": ["arcade", "by-image", "playful"], "posterMs": 90}
