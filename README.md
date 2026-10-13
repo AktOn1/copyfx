@@ -8,6 +8,11 @@ An animation on the text you just copied, for the [Omarchy](https://omarchy.org/
 
 ![Nine of the effects](preview.png)
 
+## What's new
+
+- **0.1.1 (2026-10-13):** the bar menu text now uses the popup text colour, so it stays readable over bright wallpapers.
+- **0.1.0 (2026-10-10):** first listed version (experimental).
+
 ## Install
 
 ```

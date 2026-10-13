@@ -19,7 +19,8 @@ BarWidget {
   readonly property string runDir: Quickshell.env("XDG_RUNTIME_DIR") || (dataDir + "/run")
   readonly property string previewText: "Copied to clipboard"
 
-  readonly property color fg: root.bar.barForeground
+  // popup content sits on Color.popups.background; bar.barForeground flips dark over a bright wallpaper (transparent bar), so only the bar icon may use it
+  readonly property color fg: Color.popups.text
   readonly property string boxOn: "󰄲"
   readonly property string boxOff: "󰄱"
 
@@ -188,7 +189,7 @@ BarWidget {
         CopyFxIcon {
           anchors.centerIn: parent
           iconSize: Style.bar.iconCanvas
-          color: root.fg
+          color: root.bar.barForeground // bar-icon
           opacity: root.config.enabled ? 1 : 0.4
         }
       }
