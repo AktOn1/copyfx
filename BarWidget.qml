@@ -124,6 +124,7 @@ BarWidget {
     else if (t === "r") root.surprise()
     else if (t === "v") root.openGallery()
     else if (t === "f") root.toggleFav()
+    else if (t === "u") wn.toggle()
     else if (t === "g") sec.jump(false)
     else if (t === "G") sec.jump(true)
     else if (t >= "1" && t <= "9") sec.gotoCat(parseInt(t) - 1)
@@ -155,8 +156,10 @@ BarWidget {
     if (popupOpen) {
       root.previewId = ""
       sec.sync()
+      wn.refresh()
     } else {
       previewTimer.stop()
+      wn.close()
     }
   }
 
@@ -228,7 +231,7 @@ BarWidget {
       onTabRequested: function(dir) { sec.gotoCat((sec.catIdx + dir + sec.cats.length) % sec.cats.length) }
       onReturnRequested: root.viaEnter = true
       onActivateRequested: { sec.activate(!root.viaEnter); root.viaEnter = false }
-      onCloseRequested: root.close()
+      onCloseRequested: { if (wn.open) wn.close(); else root.close() }
       onTextKey: function(t) { root.handleText(t) }
 
       Column {
@@ -241,7 +244,7 @@ BarWidget {
           width: body.width
           height: Style.space(28)
           spacing: Style.space(6)
-          readonly property real cell: (width - spacing * 3) / 4
+          readonly property real cell: (width - spacing * 4 - wn.width) / 4
 
           MenuRow {
             width: header.cell
@@ -270,6 +273,13 @@ BarWidget {
             fontFamily: root.bar.fontFamily
             label: "Gallery  (v)"
             onClicked: root.openGallery()
+          }
+          WhatsNewButton {
+            id: wn
+            pluginId: "io.github.akton1.copyfx"
+            flyoutParent: keys
+            fg: root.fg
+            fontFamily: root.bar.fontFamily
           }
         }
 

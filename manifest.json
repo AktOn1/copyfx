@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "io.github.akton1.copyfx",
   "name": "CopyFX",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "author": "AktOn1",
   "license": "MIT",
   "description": "Experimental. Plays an animation on the text you just copied: letters that jump, rain or burst into flowers, right where you selected it. Over 100 effects, a bar menu and a gallery, follows your theme.",
